@@ -1,0 +1,62 @@
+{% extends "base/base.html" %}
+{% load static %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block content %}
+<div id="app" class="container mt-5">
+    <h1>Оптический анализатор размеров и формы частиц</h1>
+
+    <!-- Форма для загрузки файла -->
+    <div class="mb-4">
+        <label for="image-input" class="form-label">Загрузите изображение:</label>
+        <input type="file" id="image-input" @change="handleFileSelect" class="form-control">
+    </div>
+
+    <!-- Разметка с изображением и таблицей -->
+    <div v-if="imageUrl" class="row">
+        <!-- Блок изображения -->
+        <div class="col-md-6">
+            <h3>Загруженное изображение:</h3>
+            <img :src="imageUrl" class="img-fluid" alt="Загруженное изображение" style="max-width: 100%; max-height: 500px;">
+        </div>
+
+        <!-- Блок таблицы -->
+        <div class="col-md-6">
+            <div v-if="results.length > 0" class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                <h3>Результаты анализа:</h3>
+                <table class="table table-bordered table-striped">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Номер</th>
+                            <th>Длина</th>
+                            <th>Площадь</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="result in results" :key="result.number">
+                            <td>[[ result.number ]]</td>
+                            <td>[[ result.length ]]</td>
+                            <td>[[ result.area ]]</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Кнопки обработки изображения -->
+    <div v-if="imageUrl" class="mt-3">
+        <button @click="processImage('contrast')" class="btn btn-secondary">Контраст</button>
+        <button @click="processImage('contour')" class="btn btn-secondary">Найти контуры</button>
+        <button @click="processImage('analyze')" class="btn btn-success">Анализировать</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vue/vue.global.prod.js' %}"></script>
+<script src="{% static 'vue/image.vue.js' %}"></script>
+{% endblock %}

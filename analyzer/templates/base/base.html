@@ -1,0 +1,30 @@
+{% load static %}
+
+
+<!doctype html>
+
+<html lang="ru">
+<head>
+     {% csrf_token %}
+    <meta charset="UTF-8">
+    <title>{% block title %}Оптический анализатор{% endblock %}</title>
+    <!-- Подключение Bootstrap CSS -->
+    <link rel="stylesheet" href="{% static 'bootstrap/css/bootstrap.min.css' %}">
+    <!-- Дополнительные стили -->
+    {% block styles %}
+    {% endblock %}
+</head>
+<body>
+    <!-- Основной контент страницы -->
+    {% block content %}
+    {% endblock %}
+
+    <!-- Подключение Vue.js -->
+    <script src="{% static 'vue/vue.global.prod.js' %}"></script>
+    <!-- Подключение Bootstrap JS -->
+    <script src="{% static 'bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+    <!-- Дополнительные скрипты -->
+    {% block scripts %}
+    {% endblock %}
+</body>
+</html>

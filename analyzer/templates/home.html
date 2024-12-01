@@ -7,51 +7,88 @@
 
 {% block content %}
 <div id="app" class="container mt-5">
-    <h1>Оптический анализатор размеров и формы частиц</h1>
+    <h1 class="mb-4">Оптический анализатор размеров и формы частиц</h1>
 
-    <!-- Форма для загрузки файла -->
-    <div class="mb-4">
-        <label for="image-input" class="form-label">Загрузите изображение:</label>
-        <input type="file" id="image-input" @change="handleFileSelect" class="form-control">
+    <!-- Форма для выбора файлов -->
+    <div class="mb-3">
+        
+        <input type="file" id="image-input" @change="handleFileSelect" multiple class="form-control">
     </div>
 
-    <!-- Разметка с изображением и таблицей -->
-    <div v-if="imageUrl" class="row">
-        <!-- Блок изображения -->
-        <div class="col-md-6">
-            <h3>Загруженное изображение:</h3>
-            <img :src="imageUrl" class="img-fluid" alt="Загруженное изображение" style="max-width: 100%; max-height: 500px;">
-        </div>
+    <div class="row">
+        <!-- Список файлов -->
+        <div class="col-md-3">
+            <h4>Список файлов:</h4>
+            <ul class="list-group text-center">
+    <li
+        v-for="file in files"
+        :key="file.name"
+        class="list-group-item"
+        :class="{ active: file === currentFile }"
+        @click="selectFile(file)"
+        style="cursor: pointer; user-select: none;"
+    >
+        [[ file.name.split('.')[0] ]]
+    </li>
+</ul>
 
-        <!-- Блок таблицы -->
-        <div class="col-md-6">
-            <div v-if="results.length > 0" class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                <h3>Результаты анализа:</h3>
-                <table class="table table-bordered table-striped">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Номер</th>
-                            <th>Длина</th>
-                            <th>Площадь</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="result in results" :key="result.number">
-                            <td>[[ result.number ]]</td>
-                            <td>[[ result.length ]]</td>
-                            <td>[[ result.area ]]</td>
-                        </tr>
-                    </tbody>
-                </table>
+
+            </ul>
+            <!-- Кнопка "Удалить выбранное" -->
+            <div class="text-left mt-3">
+                <button class="btn btn-danger" @click="deleteCurrentFile" :disabled="!currentFile">Удалить выбранное</button>
             </div>
         </div>
-    </div>
 
-    <!-- Кнопки обработки изображения -->
-    <div v-if="imageUrl" class="mt-3">
-        <button @click="processImage('contrast')" class="btn btn-secondary">Контраст</button>
-        <button @click="processImage('contour')" class="btn btn-secondary">Найти контуры</button>
-        <button @click="processImage('analyze')" class="btn btn-success">Анализировать</button>
+        <!-- Превью изображения и таблица результатов -->
+        <div class="col-md-9">
+            <div class="row">
+                <!-- Превью изображения -->
+                <div class="col-md-6 d-flex justify-content-center align-items-center flex-column">
+                    <h4 class="text-center">Превью изображения:</h4>
+                    <div
+                        class="img-thumbnail d-flex justify-content-center align-items-center"
+                        style="width: 400px; height: 400px; background-color: #f8f9fa; border: 1px solid #dee2e6;"
+                    >
+                        <img
+                            v-if="currentFile"
+                            :src="imageUrl"
+                            alt="Превью изображения"
+                            style="max-width: 100%; max-height: 100%; object-fit: contain;"
+                        >
+                        <span v-else class="text-muted">Нет изображения для отображения</span>
+                    </div>
+                    <!-- Кнопки обработки изображения -->
+                    <div class="mt-3 text-center">
+                        <button class="btn btn-secondary me-2" @click="processAllFiles('contrast')">Контраст</button>
+                        <button class="btn btn-secondary me-2" @click="processAllFiles('contour')">Найти контуры</button>
+                        <button class="btn btn-success" @click="processAllFiles('analyze')">Анализировать</button>
+                    </div>
+                </div>
+
+                <!-- Таблица результатов -->
+                <div class="col-md-6">
+                    <h4>Результаты анализа:</h4>
+                    <table class="table table-bordered table-sm" v-if="results.length > 0">
+                        <thead>
+                            <tr>
+                                <th>Номер</th>
+                                <th>Длина</th>
+                                <th>Площадь</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="result in results" :key="result.number">
+                                <td>[[ result.number ]]</td>
+                                <td>[[ result.length ]]</td>
+                                <td>[[ result.area ]]</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p v-else class="text-muted">Результаты пока отсутствуют.</p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

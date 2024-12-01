@@ -4,8 +4,7 @@ from . import views
 urlpatterns = [
     path('', views.home, name='home'),
     path('upload_image/', views.upload_image, name='upload_image'),
-    path('process_contrast/', views.process_contrast, name='process_contrast'),
-    path('process_contour/', views.process_contour, name='process_contour'),
-    path('process_analyze/', views.process_analyze, name='process_analyze'),
-
+    path('delete_image/', views.delete_image, name='delete_image'),
+    path('list_images/', views.list_images, name='list_images'),
+    path('process_images/<str:action>/', views.process_images, name='process_images'),
 ]

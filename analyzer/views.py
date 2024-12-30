@@ -1,7 +1,7 @@
 import os
 import cv2
 import json
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.core.files.storage import default_storage
@@ -36,7 +36,6 @@ def home(request):
     # Очищаем папку in_work
     clear_in_work()
     return render(request, 'home.html')
-
 
 @csrf_exempt
 def upload_image(request):

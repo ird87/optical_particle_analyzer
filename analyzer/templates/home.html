@@ -7,157 +7,44 @@
 
 {% block content %}
 <div id="app" class="container mt-5">
-    <h1 class="mb-4">Оптический анализатор размеров и формы частиц</h1>
+    <!-- Меню вкладок -->
+    <ul class="nav nav-tabs">
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'analyze' }" @click="switchTab('analyze')">Анализ</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'results' }" @click="switchTab('results')">Результаты</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'calibration' }" @click="switchTab('calibration')">Калибровка</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'settings' }" @click="switchTab('settings')">Настройки</a>
+        </li>
+    </ul>
 
-    <!-- Форма для выбора файлов -->
-    <div class="mb-3">
-        <input type="file" id="image-input" @change="handleFileSelect" multiple class="form-control">
-    </div>
-
-    <!-- Поля ввода -->
-    <div class="row mb-3">
-        <div class="col-md-9">
-            <label for="description-input" class="form-label">Описание:</label>
-            <input type="text" id="description-input" v-model="description" class="form-control">
-        </div>
-        <div class="col-md-3">
-            <label for="performed-by-input" class="form-label">Выполнил:</label>
-            <input type="text" id="performed-by-input" v-model="performedBy" class="form-control">
-        </div>
-    </div>
-
-    <div class="row">
-        <!-- Список файлов -->
-        <div class="col-md-3">
-            <h4>Список файлов:</h4>
-            <ul class="list-group text-center">
-                <li
-                    v-for="file in files"
-                    :key="file.name"
-                    class="list-group-item"
-                    :class="{ active: file === currentFile }"
-                    @click="selectFile(file)"
-                    style="cursor: pointer; user-select: none;"
-                >
-                    [[ file.name.split('.')[0] ]]
-                </li>
-            </ul>
-            <div class="text-left mt-3">
-                <button class="btn btn-danger me-2" @click="deleteCurrentFile" :disabled="!currentFile">Удалить</button>
-                <button class="btn btn-success" @click="analyzeAllFiles" :disabled="files.length === 0">Анализировать</button>
-            </div>
+    <!-- Контейнер для вкладок -->
+    <div class="tab-content border p-3" style="margin-top: -1px;">
+        <!-- Блок для анализа -->
+        <div id="analyze-tab" v-show="currentTab === 'analyze'">
+            {% include "analyze.html" %}
         </div>
 
-        <!-- Превью изображения -->
-        <div class="col-md-9">
-            <div class="row">
-                <div class="col-md-6 d-flex align-items-center flex-column">
-                    <h4 class="text-center">Превью изображения:</h4>
-                    <div
-                        class="img-thumbnail d-flex justify-content-center align-items-center"
-                        style="width: 400px; height: 400px; background-color: #f8f9fa; border: 1px solid #dee2e6;"
-                    >
-                        <img
-                            v-if="currentFile && selectedFolder"
-                            :src="getImageUrl(currentFile.name, selectedFolder)"
-                            alt="Превью изображения"
-                            style="max-width: 100%; max-height: 100%; object-fit: contain;"
-                        >
-                        <span v-else class="text-muted">Нет изображения для отображения</span>
-                    </div>
-                    <!-- Переключатели -->
-                  <!-- Переключатели -->
-<div class="btn-group mt-3">
-    <button
-        class="btn btn-outline-primary"
-        v-for="folder in folders"
-        :key="folder"
-        :class="{ active: folder === selectedFolder }"
-        :disabled="!folderButtonStates[folder]"
-        @click="changeFolder(folder)"
-    >
-        [[ folderNames[folder] ]]
-    </button>
-</div>
+        <!-- Блок для результатов -->
+        <div id="results-tab" v-show="currentTab === 'results'"><div class="alert alert-danger">Вкладка "Результаты" ещё не реализована.</div></div>
 
-                </div>
+        <!-- Блок для калибровки -->
+        <div id="calibration-tab" v-show="currentTab === 'calibration'"><div class="alert alert-danger">Вкладка "Калибровка" ещё не реализована.</div></div>
 
-                <!-- Результаты анализа -->
-                <div class="col-md-6">
-    <h4>Результаты анализа:</h4>
-    <!-- Таблицы результатов -->
-    <div v-if="results.length > 0" >
-
-    <!-- Контейнер с прокруткой только для таблицы -->
-    <div style="max-height: 300px; overflow-y: auto;">
-        <table class="table table-bordered table-sm">
-            <thead>
-                <tr>
-                    <th>Номер</th>
-                    <th>Периметр</th>
-                    <th>Площадь</th>
-                    <th>Ширина</th>
-                    <th>Длина</th>
-                    <th>ДЭК</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr v-for="result in results" :key="result.number">
-                    <td>[[ result.number ]]</td>
-                    <td>[[ result.perimeter.toFixed(2) ]]</td>
-                    <td>[[ result.area.toFixed(2) ]]</td>
-                    <td>[[ result.width.toFixed(2) ]]</td>
-                    <td>[[ result.length.toFixed(2) ]]</td>
-                    <td>[[ result.dek.toFixed(2) ]]</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Общее -->
-
-    <table class="table table-bordered table-sm mt-2">
-        <tbody>
-            <tr>
-                <td>Средний периметр</td>
-                <td>[[ averages.perimeter.toFixed(2) ]]</td>
-            </tr>
-            <tr>
-                <td>Средняя площадь</td>
-                <td>[[ averages.area.toFixed(2) ]]</td>
-            </tr>
-            <tr>
-                <td>Средняя ширина</td>
-                <td>[[ averages.width.toFixed(2) ]]</td>
-            </tr>
-            <tr>
-                <td>Средняя длина</td>
-                <td>[[ averages.length.toFixed(2) ]]</td>
-            </tr>
-            <tr>
-                <td>Средний ДЭК</td>
-                <td>[[ averages.dek.toFixed(2) ]]</td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-
-    <!-- Сообщение о пустых результатах -->
-    <p v-if="results.length === 0" class="text-muted">Результаты пока отсутствуют.</p>
-
-    <!-- Кнопка "Сохранить" -->
-    <button class="btn btn-primary mt-3" :disabled="isSaveButtonDisabled">Сохранить</button>
-</div>
-
-            </div>
-        </div>
+        <!-- Блок для настроек -->
+        <div id="settings-tab" v-show="currentTab === 'settings'"><div class="alert alert-danger">Вкладка "Настройки" ещё не реализована.</div></div>
     </div>
 </div>
 {% endblock %}
 
-
 {% block scripts %}
-<script src="{% static 'vue/vue.global.prod.js' %}"></script>
-<script src="{% static 'vue/image.vue.js' %}"></script>
+
+<script src="{% static 'vue/analyze.vue.js' %}"></script>
+<script src="{% static 'vue/home.vue.js' %}"></script>
+
 {% endblock %}

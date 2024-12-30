@@ -1,4 +1,4 @@
-const app = Vue.createApp({
+window.analyzeMixin = {
     delimiters: ['[[', ']]'],
     data() {
         return {
@@ -98,33 +98,33 @@ const app = Vue.createApp({
         },
         // Анализ всех файлов
         async analyzeAllFiles() {
-    try {
-        const response = await fetch('/process_images/analyze_all/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                description: this.description,
-                performedBy: this.performedBy,
-            }),
-        });
+            try {
+                const response = await fetch('/process_images/analyze_all/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        description: this.description,
+                        performedBy: this.performedBy,
+                    }),
+                });
 
-        if (response.ok) {
-            const data = await response.json();
-            this.results = data.results.contours;
-            this.averages = data.results.averages;
+                if (response.ok) {
+                    const data = await response.json();
+                    this.results = data.results.contours;
+                    this.averages = data.results.averages;
 
-            // Автоматически переключаем папку отображения на "Результат"
-            if (this.currentFile) {
-                this.selectedFolder = 'analyzed';
-                this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
+                    // Автоматически переключаем папку отображения на "Результат"
+                    if (this.currentFile) {
+                        this.selectedFolder = 'analyzed';
+                        this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
+                    }
+                } else {
+                    console.error('Ошибка анализа.');
+                }
+            } catch (error) {
+                console.error('Ошибка анализа:', error);
             }
-        } else {
-            console.error('Ошибка анализа.');
-        }
-    } catch (error) {
-        console.error('Ошибка анализа:', error);
-    }
-},
+        },
         // Удаление текущего файла
         async deleteCurrentFile() {
             if (!this.currentFile) {
@@ -165,6 +165,4 @@ const app = Vue.createApp({
         // Инициализация при загрузке страницы
         this.lastUsedIndex = 0;
     },
-});
-
-app.mount('#app');
+};

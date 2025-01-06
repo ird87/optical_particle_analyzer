@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="app" class="container mt-5">
+<div id="app" class="container mt-2">
     <!-- Меню вкладок -->
     <ul class="nav nav-tabs">
         <li class="nav-item">
@@ -24,7 +24,7 @@
     </ul>
 
     <!-- Контейнер для вкладок -->
-    <div class="tab-content border p-3" style="margin-top: -1px;">
+    <div class="tab-content border p-3 pt-0" style="margin-top: -1px;">
         <!-- Блок для анализа -->
         <div id="analyze-tab" v-show="currentTab === 'analyze'">
             {% include "analyze.html" %}

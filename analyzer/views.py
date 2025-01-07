@@ -1,79 +1,190 @@
 import os
 import cv2
 import json
-from django.http import JsonResponse, HttpResponse, HttpResponseNotAllowed
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 import shutil
 import math
-
+from django.db import transaction
 from django.views.decorators.http import require_http_methods
-
 from .models import Research, ContourData, Calibration
 
-# Общая функция для очистки папки
-def clear_directory(path):
-    if os.path.exists(path):
-        shutil.rmtree(path)
-    os.makedirs(path, exist_ok=True)
-
-def clear_in_work():
-    """Очищает все папки внутри `in_work`."""
-    in_work_dir = os.path.join(settings.MEDIA_ROOT, 'in_work')
-    if os.path.exists(in_work_dir):
-        for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
-            folder_path = os.path.join(in_work_dir, folder)
-            if os.path.exists(folder_path):
-                shutil.rmtree(folder_path)
-            os.makedirs(folder_path)
+# Пути для рабочих директорий
+research_dir = os.path.join(settings.MEDIA_ROOT, 'research')
+calibration_dir = os.path.join(settings.MEDIA_ROOT, 'calibration')
+research_in_work_dir = os.path.join(research_dir, 'in_work')
+calibration_in_work_dir = os.path.join(calibration_dir, 'in_work')
 
 
-def clear_in_work_except_sources():
-    """Очищает все папки внутри `in_work`, кроме `sources`."""
-    in_work_dir = os.path.join(settings.MEDIA_ROOT, 'in_work')
-    if os.path.exists(in_work_dir):
-        for folder in ['contrasted', 'contours', 'analyzed']:  # Исключаем `sources`
-            folder_path = os.path.join(in_work_dir, folder)
-            if os.path.exists(folder_path):
-                shutil.rmtree(folder_path)
-            os.makedirs(folder_path, exist_ok=True)
+def get_files_in_directory(directory):
+    if os.path.exists(directory):
+        return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    return []
 
+# Методы для калибровки
+def clear_calibration_in_work():
+    """Очищает все папки внутри calibration/in_work."""
+    if os.path.exists(calibration_in_work_dir):
+        shutil.rmtree(calibration_in_work_dir)
+    os.makedirs(calibration_in_work_dir, exist_ok=True)
+
+
+@require_http_methods(["GET"])
+def calibration_list(request):
+    """
+    Возвращает список всех калибровок.
+    """
+    calibrations = Calibration.objects.all().values('id', 'name', 'microscope', 'coefficient')
+    return JsonResponse(list(calibrations), safe=False)
+
+
+@require_http_methods(["GET"])
+def get_calibration(request, pk):
+    """
+    Возвращает данные калибровки по ID.
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+        calibration_data = {
+            'id': calibration.id,
+            'name': calibration.name,
+            'microscope': calibration.microscope,
+            'coefficient': calibration.coefficient,
+        }
+        return JsonResponse(calibration_data)
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def save_calibration(request):
+    """
+    Сохраняет данные калибровки.
+    """
+    try:
+        data = json.loads(request.body)
+        calibration, created = Calibration.objects.update_or_create(
+            id=data.get('id'),
+            defaults={
+                'name': data['name'],
+                'microscope': data['microscope'],
+                'coefficient': data['coefficient'],
+            },
+        )
+        return JsonResponse({'status': 'success', 'id': calibration.id})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def load_calibration(request, pk):
+    """
+    Загружает данные калибровки по ID и очищает calibration/in_work.
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+        calibration_data = {
+            'id': calibration.id,
+            'name': calibration.name,
+            'microscope': calibration.microscope,
+            'coefficient': calibration.coefficient,
+        }
+        clear_calibration_in_work()
+        return JsonResponse({'status': 'success', 'calibration': calibration_data})
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_calibration(request, pk):
+    """
+    Удаляет данные калибровки.
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+        calibration.delete()
+        return JsonResponse({'status': 'success'})
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def execute_calibration(request):
+    """
+    Выполняет калибровку (заглушка).
+    """
+    clear_calibration_in_work()
+    # Добавить здесь логику выполнения калибровки
+    return JsonResponse({'status': 'success', 'message': 'Calibration executed (placeholder)'})
+
+
+def clear_research_directory(path):
+    """
+    Очищает все папки внутри указанной директории.
+    Если директория не существует, она будет создана.
+    """
+    for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
+        folder_path = os.path.join(path, folder)
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
+
+
+def clear_research_directory_except_sources(path):
+    """
+    Очищает все папки внутри указанной директории, кроме sources.
+    Если директория не существует, она будет создана.
+    """
+    for folder in ['contrasted', 'contours', 'analyzed']:
+        folder_path = os.path.join(path, folder)
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
+
+def clear_research_in_work():
+    """Очищает все папки внутри research/in_work."""
+    clear_research_directory(research_in_work_dir)
+
+
+def clear_research_in_work_except_sources():
+    """Очищает все папки внутри research/in_work, кроме sources."""
+    clear_research_directory_except_sources(research_in_work_dir)
 
 def home(request):
-    # Очищаем папку in_work
-    clear_in_work()
+    # Очищаем research/in_work
+    clear_research_in_work()
     return render(request, 'home.html')
 
+
+@require_http_methods(["GET"])
 def research_list(request):
     """
-    Возвращает список исследований с полями: id, название, сотрудник, микроскоп и дата.
+    Возвращает список исследований.
     """
-    researches = Research.objects.all().values(
-        'id',          # Уникальный идентификатор исследования
-        'name',        # Название исследования
-        'employee',    # Сотрудник
-        'microscope',  # Название микроскопа
-        'date'         # Дата создания
-    )
+    researches = Research.objects.all().values('id', 'name', 'employee', 'microscope', 'date')
     return JsonResponse(list(researches), safe=False)
 
 
 @require_http_methods(["GET"])
 def get_research(request, pk):
     """
-    Возвращает полную модель исследования с контурами и калибровкой.
+    Возвращает данные исследования.
     """
     try:
-        # Получение исследования
         research = Research.objects.get(pk=pk)
-
-        # Получение связанных контуров
         contours = list(ContourData.objects.filter(research=research).values(
             'contour_number', 'perimeter', 'area', 'width', 'length', 'dek'
         ))
-
-        # Формирование данных калибровки
         calibration = None
         if research.calibration:
             calibration = {
@@ -82,8 +193,6 @@ def get_research(request, pk):
                 'microscope': research.calibration.microscope,
                 'coefficient': research.calibration.coefficient,
             }
-
-        # Формирование ответа
         research_data = {
             'id': research.id,
             'name': research.name,
@@ -95,13 +204,79 @@ def get_research(request, pk):
             'average_width': research.average_width,
             'average_length': research.average_length,
             'average_dek': research.average_dek,
-            'calibration': calibration,  # Калибровка
-            'contours': contours,  # Контуры
+            'calibration': calibration,
+            'contours': contours,
         }
-
         return JsonResponse(research_data)
     except Research.DoesNotExist:
         return JsonResponse({'error': 'Research not found'}, status=404)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def save_research(request):
+    """
+    Сохраняет исследование.
+    """
+    try:
+        data = json.loads(request.body)
+
+        # Подготовка общих данных для исследования
+        research_data = {
+            'name': data['name'],
+            'employee': data['employee'],
+            'microscope': data['microscope'],
+            'average_perimeter': data['average_perimeter'],
+            'average_area': data['average_area'],
+            'average_width': data['average_width'],
+            'average_length': data['average_length'],
+            'average_dek': data['average_dek'],
+        }
+
+        # Если id == 0, создаём новое исследование
+        if data.get('id', 0) == 0:
+            research = Research.objects.create(**research_data)
+        else:
+            # Обновляем существующее или создаём, если объект не найден
+            research, _ = Research.objects.update_or_create(
+                id=data['id'], defaults=research_data
+            )
+
+        # Установка калибровки
+        calibration_id = data.get('calibration_id', 0)
+        research.calibration_id = calibration_id if calibration_id > 0 else None
+        research.save()
+
+        # Работа с контурами
+        contours = data.get('contours', [])
+        with transaction.atomic():
+            ContourData.objects.filter(research=research).delete()
+            new_contours = [
+                ContourData(
+                    research=research,
+                    contour_number=contour['number'],
+                    perimeter=contour['perimeter'],
+                    area=contour['area'],
+                    width=contour['width'],
+                    length=contour['length'],
+                    dek=contour['dek'],
+                )
+                for contour in contours
+            ]
+            ContourData.objects.bulk_create(new_contours)
+
+        # Обработка директорий
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+        clear_research_directory(cur_research_dir)
+        for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
+            src = os.path.join(research_in_work_dir, folder)
+            dst = os.path.join(cur_research_dir, folder)
+            if os.path.exists(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+
+        return JsonResponse({'status': 'success', 'id': research.id})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @csrf_exempt
@@ -109,23 +284,24 @@ def get_research(request, pk):
 def load_research(request, pk):
     """
     Загружает исследование по указанному ID, включая контуры и калибровку.
-    Очищает in_work_dir и копирует данные из папки исследования.
+    Очищает research_in_work_dir и копирует данные из папки исследования.
     """
     try:
         # Получение исследования
         research = Research.objects.get(pk=pk)
 
-        # Очищаем in_work_dir
-        in_work_dir = os.path.join(settings.MEDIA_ROOT, 'in_work')
-        clear_directory(in_work_dir)
+        # Очищаем research_in_work_dir
+        clear_research_in_work()
 
-        # Копируем папки из папки исследования
-        research_dir = os.path.join(settings.MEDIA_ROOT, str(pk))
+        # Путь к папке исследования
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+
+        # Копируем папки из исследования в рабочую директорию
         for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
-            src = os.path.join(research_dir, folder)
-            dst = os.path.join(in_work_dir, folder)
+            src = os.path.join(cur_research_dir, folder)
+            dst = os.path.join(research_in_work_dir, folder)
             if os.path.exists(src):
-                shutil.copytree(src, dst)
+                shutil.copytree(src, dst, dirs_exist_ok=True)
 
         # Формирование данных калибровки
         calibration = None
@@ -158,166 +334,46 @@ def load_research(request, pk):
             'contours': contours,       # Данные контуров
         }
 
-        return JsonResponse({'status': 'success', 'research': research_data})
+        files_in_sources = get_files_in_directory(os.path.join(research_in_work_dir, 'sources'))
+
+        return JsonResponse({'status': 'success', 'research': research_data, 'files':files_in_sources })
     except Research.DoesNotExist:
         return JsonResponse({'error': 'Research not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-
-
-# Сохранение модели
-@csrf_exempt
-@require_http_methods(["POST"])
-def save_research(request):
-    try:
-        data = json.loads(request.body)
-
-        # Обновление или создание исследования
-        research, created = Research.objects.update_or_create(
-            id=data.get('id'),
-            defaults={
-                'name': data['name'],
-                'employee': data['employee'],
-                'microscope': data['microscope'],
-                'average_perimeter': data['average_perimeter'],
-                'average_area': data['average_area'],
-                'average_width': data['average_width'],
-                'average_length': data['average_length'],
-                'average_dek': data['average_dek'],
-            },
-        )
-
-        # Установка связи с калибровкой через ID
-        calibration_id = data.get('calibration_id', 0)
-        research.calibration_id = calibration_id if calibration_id > 0 else None
-        research.save()
-
-        # Сохранение контуров
-        ContourData.objects.filter(research=research).delete()
-        contours = data.get('contours', [])
-        for contour in contours:
-            ContourData.objects.create(
-                research=research,
-                contour_number=contour['contour_number'],
-                perimeter=contour['perimeter'],
-                area=contour['area'],
-                width=contour['width'],
-                length=contour['length'],
-                dek=contour['dek'],
-            )
-
-        # Сохранение файлов
-        research_dir = os.path.join(settings.MEDIA_ROOT, str(research.id))
-        clear_directory(research_dir)
-        in_work_dir = os.path.join(settings.MEDIA_ROOT, 'in_work')
-        for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
-            src = os.path.join(in_work_dir, folder)
-            dst = os.path.join(research_dir, folder)
-            if os.path.exists(src):
-                shutil.copytree(src, dst)
-
-        return JsonResponse({'status': 'success', 'id': research.id})
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
-
 
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def delete_research(request, pk):
     """
-    Удаляет исследование, включая контуры, калибровку и файлы, связанные с исследованием.
+    Удаляет исследование.
     """
     try:
-        # Получение исследования
         research = Research.objects.get(pk=pk)
-
-        # Удаление исследования и связанных данных
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+        if os.path.exists(cur_research_dir):
+            shutil.rmtree(cur_research_dir)
         research.delete()
-
-        # Удаление папки исследования
-        research_dir = os.path.join(settings.MEDIA_ROOT, str(pk))
-        if os.path.exists(research_dir):
-            shutil.rmtree(research_dir)
-
         return JsonResponse({'status': 'success'})
     except Research.DoesNotExist:
         return JsonResponse({'error': 'Research not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-
 @csrf_exempt
-def upload_image(request):
-    if request.method == 'POST' and 'images[]' in request.FILES:
-        images = request.FILES.getlist('images[]')
-        saved_files = []
-
-        for image in images:
-            # Формируем путь для сохранения
-            save_path = os.path.join(settings.MEDIA_ROOT, 'in_work', 'sources', image.name)
-
-            # Убедитесь, что директория существует
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-            # Сохраняем файл
-            with open(save_path, 'wb') as f:
-                for chunk in image.chunks():
-                    f.write(chunk)
-
-            saved_files.append(image.name)
-
-        return JsonResponse({'status': 'success', 'files': saved_files})
-    else:
-        return JsonResponse({'error': 'Изображения не переданы'}, status=400)
-
-
-@csrf_exempt
-def delete_image(request):
+def execute_research(request):
+    """
+    Выполняет обработку изображений (анализ) для исследований.
+    """
     if request.method == 'POST':
-        data = json.loads(request.body)
-        file_name = data.get('file_name')
+        # Очищаем все, кроме sources
+        clear_research_in_work_except_sources()
 
-        if not file_name:
-            return JsonResponse({'error': 'Имя файла не указано'}, status=400)
-
-        folders = ['sources', 'contrasted', 'contours', 'analyzed']
-        for folder in folders:
-            file_path = os.path.join(settings.MEDIA_ROOT, 'in_work', folder, file_name)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-
-        return JsonResponse({'status': 'success'})
-    else:
-        return JsonResponse({'error': 'Неподдерживаемый метод'}, status=405)
-
-
-
-@csrf_exempt
-def list_images(request):
-    sources_dir = os.path.join(settings.MEDIA_ROOT, 'in_work/sources')
-    if not os.path.exists(sources_dir):
-        return JsonResponse({'files': []})
-
-    files = os.listdir(sources_dir)
-    files_data = [{'index': i + 1, 'name': f} for i, f in enumerate(files)]
-    return JsonResponse({'files': files_data})
-
-
-
-@csrf_exempt
-def process_images_analyze_all(request):
-    if request.method == 'POST':
-        clear_in_work_except_sources()
-
-        folders = ['contrasted', 'contours', 'analyzed']
-        for folder in folders:
-            os.makedirs(os.path.join(settings.MEDIA_ROOT, 'in_work', folder), exist_ok=True)
-
-        source_dir = os.path.join(settings.MEDIA_ROOT, 'in_work/sources')
-        contrasted_dir = os.path.join(settings.MEDIA_ROOT, 'in_work/contrasted')
-        contours_dir = os.path.join(settings.MEDIA_ROOT, 'in_work/contours')
-        analyzed_dir = os.path.join(settings.MEDIA_ROOT, 'in_work/analyzed')
+        source_dir = os.path.join(research_in_work_dir, 'sources')
+        contrasted_dir = os.path.join(research_in_work_dir, 'contrasted')
+        contours_dir = os.path.join(research_in_work_dir, 'contours')
+        analyzed_dir = os.path.join(research_in_work_dir, 'analyzed')
 
         all_contours = []
         averages = {'perimeter': 0, 'area': 0, 'length': 0, 'width': 0, 'dek': 0}
@@ -351,11 +407,6 @@ def process_images_analyze_all(request):
 
         return JsonResponse({'results': {'contours': all_contours, 'averages': averages}})
     return JsonResponse({'error': 'Метод не поддерживается'}, status=405)
-
-
-
-
-
 
 # Обработки
 def increase_contrast(image):
@@ -428,7 +479,7 @@ def analyze_contours(image, start_number=1):
 
         # Добавляем результат
         results.append({
-            'number': start_number,
+            'contour_number': start_number,
             'perimeter': round(perimeter, 2),
             'area': round(area, 2),
             'length': round(length, 2),
@@ -445,6 +496,92 @@ def analyze_contours(image, start_number=1):
         start_number += 1
 
     return image, results, start_number
+
+
+@csrf_exempt
+def upload_image(request):
+    """
+    Сохраняет изображения в зависимости от контекста (исследование или калибровка).
+    """
+    if request.method == 'POST' and 'images[]' in request.FILES:
+        context = request.POST.get('context', 'research')  # Контекст: research или calibration
+        if context not in ['research', 'calibration']:
+            return JsonResponse({'error': 'Invalid context specified'}, status=400)
+
+        # Выбираем рабочую директорию
+        in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+
+        images = request.FILES.getlist('images[]')
+        saved_files = []
+
+        for image in images:
+            # Формируем путь для сохранения
+            save_path = os.path.join(in_work_dir, 'sources', image.name)
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            # Сохраняем файл
+            with open(save_path, 'wb') as f:
+                for chunk in image.chunks():
+                    f.write(chunk)
+
+            saved_files.append(image.name)
+
+        return JsonResponse({'status': 'success', 'files': saved_files})
+    else:
+        return JsonResponse({'error': 'Изображения не переданы'}, status=400)
+
+
+@csrf_exempt
+def delete_image(request):
+    """
+    Удаляет изображения в зависимости от контекста (исследование или калибровка).
+    """
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        context = data.get('context', 'research')  # Контекст: research или calibration
+        file_name = data.get('file_name')
+
+        if not file_name or context not in ['research', 'calibration']:
+            return JsonResponse({'error': 'Неверные параметры'}, status=400)
+
+        # Выбираем рабочую директорию
+        in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+
+        folders = ['sources', 'contrasted', 'contours', 'analyzed']
+        for folder in folders:
+            file_path = os.path.join(in_work_dir, folder, file_name)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+        return JsonResponse({'status': 'success'})
+    else:
+        return JsonResponse({'error': 'Неподдерживаемый метод'}, status=405)
+
+
+@csrf_exempt
+def list_images(request):
+    """
+    Возвращает список изображений в зависимости от контекста (исследование или калибровка).
+    """
+    context = request.GET.get('context', 'research')  # Контекст: research или calibration
+    if context not in ['research', 'calibration']:
+        return JsonResponse({'error': 'Invalid context specified'}, status=400)
+
+    # Выбираем рабочую директорию
+    in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+    sources_dir = os.path.join(in_work_dir, 'sources')
+
+    if not os.path.exists(sources_dir):
+        return JsonResponse({'files': []})
+
+    files = os.listdir(sources_dir)
+    files_data = [{'index': i + 1, 'name': f} for i, f in enumerate(files)]
+    return JsonResponse({'files': files_data})
+
+
+
+
+
 
 
 

@@ -3,6 +3,7 @@ window.analyzeMixin = {
     data() {
         return {
             name: '',
+            id: 0,
             employee: '',
             selectedMicroscope: null,
             selectedCalibration: null,
@@ -45,7 +46,7 @@ window.analyzeMixin = {
     methods: {
         // Получить URL для изображения
         getImageUrl(fileName, folder) {
-            return `/media/in_work/${folder}/${fileName}`;
+            return `/media/research/in_work/${folder}/${fileName}`;
         },
         // Сменить папку для отображения
         changeFolder(folder) {
@@ -82,6 +83,9 @@ window.analyzeMixin = {
         // Загрузка изображений на сервер
         async uploadImages(formData) {
             try {
+                // Добавляем контекст исследования
+                formData.append('context', 'research');
+
                 const response = await fetch('/upload_image/', {
                     method: 'POST',
                     body: formData,
@@ -89,12 +93,14 @@ window.analyzeMixin = {
 
                 if (response.ok) {
                     const data = await response.json();
+
                     data.files.forEach((fileName) => {
                         this.files.push({
-                            file: null, // Файл уже на сервере
+                            file: null,
                             name: fileName,
                         });
                     });
+
                 } else {
                     console.error('Ошибка загрузки файлов.');
                 }
@@ -105,13 +111,9 @@ window.analyzeMixin = {
         // Анализ всех файлов
         async analyzeAllFiles() {
             try {
-                const response = await fetch('/process_images/analyze_all/', {
+                const response = await fetch('/api/researches/execute/', { // Новый URL
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        description: this.description,
-                        performedBy: this.performedBy,
-                    }),
                 });
 
                 if (response.ok) {
@@ -119,7 +121,6 @@ window.analyzeMixin = {
                     this.results = data.results.contours;
                     this.averages = data.results.averages;
 
-                    // Автоматически переключаем папку отображения на "Результат"
                     if (this.currentFile) {
                         this.selectedFolder = 'analyzed';
                         this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
@@ -141,17 +142,17 @@ window.analyzeMixin = {
             try {
                 const response = await fetch('/delete_image/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ file_name: this.currentFile.name }),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_name: this.currentFile.name,
+                        context: 'research', // Указываем контекст исследования
+                    }),
                 });
 
                 if (response.ok) {
                     const index = this.files.indexOf(this.currentFile);
                     this.files.splice(index, 1);
 
-                    // Устанавливаем следующий или предыдущий файл
                     if (this.files.length > 0) {
                         const nextIndex = Math.min(index, this.files.length - 1);
                         this.selectFile(this.files[nextIndex]);
@@ -184,67 +185,95 @@ window.analyzeMixin = {
                 this.fetchResearches();
             }
         },
-    async deleteResearch(research) {
+        selectResearch(research) {
+        // Устанавливаем текущую строку как выбранную
+        this.selectedResearch = research;
+    },
+        async deleteResearch(research) {
+            try {
+                const response = await fetch(`/api/researches/${research.id}/delete/`, {
+                    method: 'DELETE',
+                });
+                if (response.ok) {
+                    this.researches = this.researches.filter(r => r.id !== research.id);
+                    this.selectedResearch = null;
+                } else {
+                    console.error('Ошибка удаления исследования.');
+                }
+            } catch (error) {
+                console.error('Ошибка удаления исследования:', error);
+            }
+        },
+        async loadResearch(research) {
         try {
-            const response = await fetch(`/api/researches/${research.id}/delete/`, {
-                method: 'DELETE',
-            });
+            const response = await fetch(`/api/researches/${research.id}/load/`);
             if (response.ok) {
-                this.researches = this.researches.filter(r => r.id !== research.id);
-                this.selectedResearch = null;
+                const data = await response.json();
+
+                console.log(data)
+
+                const research = data.research;
+
+                // Установка основных данных
+                this.id = research.id;
+                this.name = research.name;
+                this.employee = research.employee;
+                this.selectedMicroscope = this.microscopes.find(
+                    (microscope) => microscope.name === research.microscope
+                );
+
+                this.files = [];
+
+                data.files.forEach((fileName) => {
+                        this.files.push({
+                            file: null,
+                            name: fileName,
+                        });
+                    });
+
+                 // Устанавливаем первый файл, если его еще нет
+                if (!this.currentFile && this.files.length > 0) {
+                    this.selectFile(this.files[0]);
+
+                     if (this.currentFile) {
+                        this.selectedFolder = 'analyzed';
+                        this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
+                    }
+                }
+
+                // Установка контуров и средних значений
+                this.results = research.contours;
+                this.averages = {
+                    perimeter: research.average_perimeter,
+                    area: research.average_area,
+                    width: research.average_width,
+                    length: research.average_length,
+                    dek: research.average_dek,
+                };
+
+                // Установка калибровки
+                if (research.calibration) {
+                    this.selectedCalibration = {
+                        id: research.calibration.id,
+                        name: research.calibration.name,
+                        microscope: research.calibration.microscope,
+                        coefficient: research.calibration.coefficient,
+                    };
+                } else {
+                    this.selectedCalibration = null;
+                }
+
+                // Скрытие блока загрузки
+                this.toggleLoadBlock();
+
+                console.log('Данные исследования загружены:', data);
             } else {
-                console.error('Ошибка удаления исследования.');
+                console.error('Ошибка загрузки исследования.');
             }
         } catch (error) {
-            console.error('Ошибка удаления исследования:', error);
+            console.error('Ошибка загрузки исследования:', error);
         }
     },
-    async loadResearch(research) {
-    try {
-        const response = await fetch(`/api/researches/${research.id}/load/`);
-        if (response.ok) {
-            const data = await response.json();
-
-            // Установка основных данных
-            this.name = data.name;
-            this.employee = data.employee;
-            this.selectedMicroscope = this.microscopes.find(
-                (microscope) => microscope.name === data.microscope
-            );
-
-            // Установка контуров и средних значений
-            this.results = data.contours;
-            this.averages = {
-                perimeter: data.average_perimeter,
-                area: data.average_area,
-                width: data.average_width,
-                length: data.average_length,
-                dek: data.average_dek,
-            };
-
-            // Установка калибровки
-            if (data.calibration) {
-                this.selectedCalibration = {
-                    id: data.calibration.id,
-                    name: data.calibration.name,
-                    microscope: data.calibration.microscope,
-                    coefficient: data.calibration.coefficient,
-                };
-            } else {
-                this.selectedCalibration = null;
-            }
-
-            // Скрытие блока загрузки
-            this.toggleLoadBlock();
-
-            console.log('Данные исследования загружены:', data);
-        } else {
-            console.error('Ошибка загрузки исследования.');
-        }
-    } catch (error) {
-        console.error('Ошибка загрузки исследования:', error);
-    }
-},
     async saveResearch() {
         try {
             const response = await fetch('/api/researches/save/', {
@@ -253,7 +282,7 @@ window.analyzeMixin = {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    id: this.selectedResearch?.id,
+                    id: this.id,
                     name: this.name,
                     employee: this.employee,
                     microscope: this.selectedMicroscope?.name,
@@ -269,6 +298,7 @@ window.analyzeMixin = {
 
             if (response.ok) {
                 const data = await response.json();
+                this.id = data.id;
                 console.log('Сохранено исследование с ID:', data.id);
             } else {
                 console.error('Ошибка сохранения исследования.');

@@ -1,0 +1,31 @@
+.table-custom-border {
+  width: 100%;
+  text-align: center;
+  border-collapse: separate; /* Don't collapse */
+  border-spacing: 0;
+}
+
+.table-custom-border th {
+  /* Apply both top and bottom borders to the <th> */
+  border-top: 1px solid #dee2e6;
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #dee2e6;
+}
+
+.table-custom-border td {
+  /* For cells, apply the border to one of each side only (right but not left, bottom but not top) */
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #dee2e6;
+}
+
+.table-custom-border th:first-child,
+.table-custom-border td:first-child {
+  /* Apply a left border on the first <td> or <th> in a row */
+  border-left: 1px solid #dee2e6;
+}
+
+.table-custom-border thead th {
+  position: sticky;
+  top: 0;
+  background-color: #edecec;
+}

@@ -60,7 +60,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr v-for="research in researches" :key="research.id" @click="selectResearch(research)" :class="{ active: research === selectedResearch }">
+                <tr v-for="research in researches" :key="research.id" @click="selectResearch(research)" :class="{'table-active': research === selectedResearch}">
                     <td>[[ research.name ]]</td>
                     <td>[[ research.employee ]]</td>
                     <td>[[ research.microscope ]]</td>
@@ -133,7 +133,7 @@
         </div>
 
         <!-- Превью изображения -->
-        <div class="col-md-6 d-flex flex-column align-items-center">
+        <div class="col-md-4 d-flex flex-column align-items-center">
              <h4 class="text-center">Превью изображения:</h4>
             <!-- Переключатели -->
             <div class="col-md-12 d-flex justify-content-center mb-3">
@@ -203,13 +203,13 @@
         </div>
 
         <!-- Результаты анализа -->
-        <div class="col-md-3">
+        <div class="col-md-5">
             <h4>Результаты анализа:</h4>
             <!-- Таблицы результатов -->
             <div v-if="results.length > 0">
-                <div style="max-height: 300px; overflow-y: auto;">
-                    <table class="table table-bordered table-sm">
-                        <thead>
+               <div style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-custom-border table-sm" style="position: relative;">
+                        <thead class="table-light">
                             <tr>
                                 <th>Номер</th>
                                 <th>Периметр</th>
@@ -221,7 +221,7 @@
                         </thead>
                         <tbody>
                             <tr v-for="result in results" :key="result.number">
-                                <td>[[ result.number ]]</td>
+                                <td>[[ result.contour_number ]]</td>
                                 <td>[[ result.perimeter.toFixed(2) ]]</td>
                                 <td>[[ result.area.toFixed(2) ]]</td>
                                 <td>[[ result.width.toFixed(2) ]]</td>
@@ -231,6 +231,8 @@
                         </tbody>
                     </table>
                 </div>
+
+
 
                 <table class="table table-bordered table-sm mt-2">
                     <tbody>

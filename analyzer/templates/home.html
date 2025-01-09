@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="app" class="container mt-2">
+<div id="app" class="container mt-2"  data-microscopes="{{ microscopes }}">
     <!-- Меню вкладок -->
     <ul class="nav nav-tabs">
         <li class="nav-item">
@@ -31,13 +31,15 @@
         </div>
 
         <!-- Блок для результатов -->
-        <div id="results-tab" v-show="currentTab === 'results'"><div class="alert alert-danger">Вкладка "Результаты" ещё не реализована.</div></div>
+        <div id="results-tab" v-show="currentTab === 'results'"><div class=" mt-4 alert alert-danger">Вкладка "Результаты" ещё не реализована.</div></div>
 
         <!-- Блок для калибровки -->
-        <div id="calibration-tab" v-show="currentTab === 'calibration'"><div class="alert alert-danger">Вкладка "Калибровка" ещё не реализована.</div></div>
+        <div id="calibration-tab" v-show="currentTab === 'calibration'">
+             {% include "calibration.html" %}
+        </div>
 
         <!-- Блок для настроек -->
-        <div id="settings-tab" v-show="currentTab === 'settings'"><div class="alert alert-danger">Вкладка "Настройки" ещё не реализована.</div></div>
+        <div id="settings-tab" v-show="currentTab === 'settings'"><div class=" mt-4 alert alert-danger">Вкладка "Настройки" ещё не реализована.</div></div>
     </div>
 </div>
 {% endblock %}
@@ -45,6 +47,7 @@
 {% block scripts %}
 
 <script src="{% static 'vue/analyze.vue.js' %}"></script>
+<script src="{% static 'vue/calibration.vue.js' %}"></script>
 <script src="{% static 'vue/home.vue.js' %}"></script>
 
 {% endblock %}

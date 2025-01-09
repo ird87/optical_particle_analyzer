@@ -25,10 +25,13 @@ def get_files_in_directory(directory):
 
 # Методы для калибровки
 def clear_calibration_in_work():
-    """Очищает все папки внутри calibration/in_work."""
+    """
+    Полностью удаляет папку calibration/in_work и создаёт её заново.
+    """
     if os.path.exists(calibration_in_work_dir):
         shutil.rmtree(calibration_in_work_dir)
     os.makedirs(calibration_in_work_dir, exist_ok=True)
+
 
 
 @require_http_methods(["GET"])
@@ -62,28 +65,40 @@ def get_calibration(request, pk):
 @require_http_methods(["POST"])
 def save_calibration(request):
     """
-    Сохраняет данные калибровки.
+    Сохранение калибровки + копирование files (если нужно).
     """
     try:
         data = json.loads(request.body)
-        calibration, created = Calibration.objects.update_or_create(
+        # Сохраняем/обновляем модель
+        calibration, _ = Calibration.objects.update_or_create(
             id=data.get('id'),
             defaults={
                 'name': data['name'],
                 'microscope': data['microscope'],
                 'coefficient': data['coefficient'],
-            },
+            }
         )
+        # Теперь копируем 4 файла (если существуют) из in_work в calibration/<id>
+        dest_dir = os.path.join(calibration_dir, str(calibration.id))
+        os.makedirs(dest_dir, exist_ok=True)
+
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrate.jpg']:
+            src_path = os.path.join(calibration_in_work_dir, fname)
+            dst_path = os.path.join(dest_dir, fname)
+            if os.path.exists(src_path):
+                shutil.copy2(src_path, dst_path)
+
         return JsonResponse({'status': 'success', 'id': calibration.id})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
 
 
 @csrf_exempt
 @require_http_methods(["GET"])
 def load_calibration(request, pk):
     """
-    Загружает данные калибровки по ID и очищает calibration/in_work.
+    Загрузка калибровки (без под-папок: files = sources.jpg, contrasted.jpg, contours.jpg, calibrate.jpg)
     """
     try:
         calibration = Calibration.objects.get(pk=pk)
@@ -94,7 +109,29 @@ def load_calibration(request, pk):
             'coefficient': calibration.coefficient,
         }
         clear_calibration_in_work()
-        return JsonResponse({'status': 'success', 'calibration': calibration_data})
+
+        # Копируем потенциальные файлы: sources.jpg, contrasted.jpg, contours.jpg, calibrate.jpg
+        src_dir = os.path.join(calibration_dir, str(calibration.id))
+        dst_dir = calibration_in_work_dir
+        os.makedirs(dst_dir, exist_ok=True)
+
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrate.jpg']:
+            src_path = os.path.join(src_dir, fname)
+            dst_path = os.path.join(dst_dir, fname)
+            if os.path.exists(src_path):
+                shutil.copy2(src_path, dst_path)
+
+        # Собираем инфу, какие файлы реально существуют
+        existing_files = []
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrate.jpg']:
+            if os.path.exists(os.path.join(dst_dir, fname)):
+                existing_files.append(fname)
+
+        return JsonResponse({
+            'status': 'success',
+            'calibration': calibration_data,
+            'existing_files': existing_files,  # Например: ["sources.jpg", "contours.jpg"]
+        })
     except Calibration.DoesNotExist:
         return JsonResponse({'error': 'Calibration not found'}, status=404)
     except Exception as e:
@@ -105,11 +142,19 @@ def load_calibration(request, pk):
 @require_http_methods(["DELETE"])
 def delete_calibration(request, pk):
     """
-    Удаляет данные калибровки.
+    Удаляет калибровку из БД и соответствующую папку (calibration/<id>).
     """
     try:
         calibration = Calibration.objects.get(pk=pk)
+
+        # Удаляем папку calibration/<id>
+        folder_path = os.path.join(calibration_dir, str(calibration.id))
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+
+        # Удаляем запись из БД
         calibration.delete()
+
         return JsonResponse({'status': 'success'})
     except Calibration.DoesNotExist:
         return JsonResponse({'error': 'Calibration not found'}, status=404)
@@ -121,11 +166,137 @@ def delete_calibration(request, pk):
 @require_http_methods(["POST"])
 def execute_calibration(request):
     """
-    Выполняет калибровку (заглушка).
+    Пример эндпоинта, обрабатывающего sources.jpg, создающего
+    contrasted.jpg, contours.jpg и calibrate.jpg.
+    Находит вертикальные чёрные полосы и рассчитывает среднее расстояние.
     """
-    clear_calibration_in_work()
-    # Добавить здесь логику выполнения калибровки
-    return JsonResponse({'status': 'success', 'message': 'Calibration executed (placeholder)'})
+    try:
+        source_path = os.path.join(calibration_in_work_dir, 'sources.jpg')
+        if not os.path.exists(source_path):
+            return JsonResponse({'error': 'sources.jpg not found'}, status=404)
+
+        # 1) Читаем sources.jpg
+        src = cv2.imread(source_path, cv2.IMREAD_COLOR)
+        if src is None:
+            return JsonResponse({'error': 'Cannot read sources.jpg'}, status=500)
+
+        # 2) Контраст -> contrasted.jpg (например, через CLAHE)
+        contrasted = increase_contrast(src)
+        contrasted_path = os.path.join(calibration_in_work_dir, 'contrasted.jpg')
+        cv2.imwrite(contrasted_path, contrasted)
+
+        # 3) Поиск вертикальных полос -> contours.jpg
+        #    На самом деле можно говорить именно о поиске "чёрных вертикальных" линий.
+        #    Для простоты: делаем бинаризацию, ищем чёрные области, а потом определяем
+        #    левый край каждой чёрной области. Сохраним промежуточную картинку.
+        binary = find_vertical_lines(contrasted)
+        contours_img = src.copy()
+        # Чтобы отрисовать найденные края, например, небольшими красными линиями
+        # (ниже в find_vertical_lines() у нас возвращается список X-координат).
+        xs = detect_black_strips_left_edges(binary, contours_img)
+        contours_path = os.path.join(calibration_in_work_dir, 'contours.jpg')
+        cv2.imwrite(contours_path, contours_img)
+
+        # 4) Вычисляем среднее расстояние между соседними X-координатами
+        #    (x2 - x1), (x3 - x2), ...
+        if len(xs) < 2:
+            # Недостаточно полос для вычисления
+            return JsonResponse({'status': 'success', 'coefficient': 0.0})
+
+        distances = []
+        for i in range(1, len(xs)):
+            distances.append(xs[i] - xs[i-1])
+        avg_distance = sum(distances) / len(distances)
+
+        # 5) Итоговое изображение calibrate.jpg
+        #    Рисуем синюю линию от x1 до xN по горизонтали, на некоторой Y
+        #    Рисуем красную линию, соответствующую "среднему отрезку" (или "центральному").
+        final_img = src.copy()
+        h, w = final_img.shape[:2]
+
+        # Считаем y для синей линии: "посередине со смещением вниз на 10%"
+        # Например: y_blue = int(h * 0.5 + 0.1 * h) = int(0.6 * h)
+        y_blue = int(0.5 * h + 0.1 * h)
+        x_left = xs[0]
+        x_right = xs[-1]
+        cv2.line(final_img, (x_left, y_blue), (x_right, y_blue), (255, 0, 0), 2)
+
+        # Выберем "средний отрезок"
+        # Допустим, distances = [d1, d2, d3, ...], их на 1 меньше, чем полос
+        # Средний индекс:
+        mid_index = len(distances) // 2  # если четное количество, floor
+        # Допустим, он d_mid = distances[mid_index]
+        d_mid = distances[mid_index]
+        # Чтобы нарисовать красную линию, нужно знать x_s и x_e для него
+        # x_s = xs[mid_index]
+        # x_e = xs[mid_index+1]
+        x_s = xs[mid_index]
+        x_e = xs[mid_index + 1]
+
+        # y для красной линии (посередине со смещением вверх на 10%)
+        y_red = int(0.5 * h - 0.1 * h)
+        cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
+
+        # Подписываем над красной линией значение d_mid (до 3 знаков)
+        # Сдвинемся чуть выше линии, пусть на 10px
+        text_pos = ( (x_s + x_e) // 2, y_red - 10 )
+        cv2.putText(final_img, f"{d_mid:.3f}", text_pos,
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 4)
+        cv2.putText(final_img, f"{d_mid:.3f}", text_pos,
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+
+        # Сохраняем final_img
+        calibrate_path = os.path.join(calibration_in_work_dir, 'calibrated.jpg')
+        cv2.imwrite(calibrate_path, final_img)
+
+        return JsonResponse({
+            'status': 'success',
+            'coefficient': round(avg_distance, 3)  # Можно вернуть округлённое
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+def increase_contrast(src):
+    """Простейший пример поднятия контраста через CLAHE."""
+    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    contrasted = clahe.apply(gray)
+    # Вернём обратно BGR-картинку, если хотим
+    return cv2.cvtColor(contrasted, cv2.COLOR_GRAY2BGR)
+
+def find_vertical_lines(img_bgr):
+    """
+    Возвращает ч/б (binary) изображение, где чёрные полосы могут быть выделены.
+    Это упрощённый пример, можно менять логику.
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # Для наглядности предполагаем, что чёрные полосы < 50
+    _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+    return binary
+
+def detect_black_strips_left_edges(binary, draw_img):
+    """
+    Ищем отдельные вертикальные чёрные области,
+    возвращаем список X-координат (левых краёв).
+    Для наглядности рисуем красный маркер в draw_img.
+    """
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    xs = []
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        # Считаем, что это вертикальная полоса, если w < 50% ширины всего изображения,
+        # h достаточно большой, и т.п. Здесь можно добавить логику фильтрации.
+        # В простом случае — считаем всё чёрное вертикальной полосой.
+        xs.append(x)
+
+        # Нарисуем небольшой маркер
+        cv2.circle(draw_img, (x, y), 5, (0, 0, 255), -1)
+
+    # Сортируем по возрастанию X (слева направо)
+    xs.sort()
+    return xs
 
 
 def clear_research_directory(path):
@@ -163,6 +334,7 @@ def clear_research_in_work_except_sources():
 def home(request):
     # Очищаем research/in_work
     clear_research_in_work()
+    clear_calibration_in_work()
     return render(request, 'home.html')
 
 
@@ -497,39 +669,47 @@ def analyze_contours(image, start_number=1):
 
     return image, results, start_number
 
-
 @csrf_exempt
 def upload_image(request):
     """
-    Сохраняет изображения в зависимости от контекста (исследование или калибровка).
+    При контексте 'calibration' сохраняем файл под именем 'sources.jpg'
     """
     if request.method == 'POST' and 'images[]' in request.FILES:
-        context = request.POST.get('context', 'research')  # Контекст: research или calibration
-        if context not in ['research', 'calibration']:
-            return JsonResponse({'error': 'Invalid context specified'}, status=400)
-
-        # Выбираем рабочую директорию
-        in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
-
+        context = request.POST.get('context', 'research')
         images = request.FILES.getlist('images[]')
-        saved_files = []
 
-        for image in images:
-            # Формируем путь для сохранения
-            save_path = os.path.join(in_work_dir, 'sources', image.name)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-            # Сохраняем файл
+        if context == 'calibration':
+            save_path = os.path.join(calibration_in_work_dir, 'sources.jpg')
+            os.makedirs(calibration_in_work_dir, exist_ok=True)  # Убедимся, что директория существует
             with open(save_path, 'wb') as f:
-                for chunk in image.chunks():
+                for chunk in images[0].chunks():
                     f.write(chunk)
+            return JsonResponse({'status': 'success'})
 
-            saved_files.append(image.name)
+        elif context == 'research':
+            # Выбираем рабочую директорию
+            in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
 
-        return JsonResponse({'status': 'success', 'files': saved_files})
-    else:
-        return JsonResponse({'error': 'Изображения не переданы'}, status=400)
+            images = request.FILES.getlist('images[]')
+            saved_files = []
 
+            for image in images:
+                # Формируем путь для сохранения
+                save_path = os.path.join(in_work_dir, 'sources', image.name)
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+                # Сохраняем файл
+                with open(save_path, 'wb') as f:
+                    for chunk in image.chunks():
+                        f.write(chunk)
+
+                saved_files.append(image.name)
+
+            return JsonResponse({'status': 'success', 'files': saved_files})
+        else:
+            return JsonResponse({'error': 'Invalid context'}, status=400)
+
+    return JsonResponse({'error': 'No images provided'}, status=400)
 
 @csrf_exempt
 def delete_image(request):

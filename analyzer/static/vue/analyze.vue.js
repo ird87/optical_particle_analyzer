@@ -7,7 +7,6 @@ window.analyzeMixin = {
             employee: '',
             selectedMicroscope: null,
             selectedCalibration: null,
-            microscopes: null, // Передача данных из context_processors
             files: [],
             currentFile: null,
             imageUrl: '',
@@ -336,9 +335,6 @@ window.analyzeMixin = {
     mounted() {
         // Инициализация при загрузке страницы
         this.lastUsedIndex = 0;
-        const microscopesData = document.getElementById('app_analyze').getAttribute('data-microscopes');
-        console.log(microscopesData);
-        this.microscopes = JSON.parse(microscopesData);
 
         // Инициализация первого микроскопа
         this.selectedMicroscope = null;

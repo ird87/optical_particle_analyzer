@@ -37,7 +37,8 @@ window.calibrationMixin = {
             this.isCalibLoadVisible = !this.isCalibLoadVisible;
         },
         getCalibImageUrl(file) {
-            return `/media/calibration/in_work/${file}`;
+            const timestamp = new Date().getTime(); // Текущая метка времени
+            return `/media/calibration/in_work/${file}?t=${timestamp}`;
         },
         changeCalibFile(view) {
             this.calibCurrentView = view;

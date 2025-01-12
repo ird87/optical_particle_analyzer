@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 import shutil
 import math
+import numpy as np
 from django.db import transaction
 from django.views.decorators.http import require_http_methods
 from .models import Research, ContourData, Calibration
@@ -166,92 +167,81 @@ def delete_calibration(request, pk):
 @require_http_methods(["POST"])
 def execute_calibration(request):
     """
-    Пример эндпоинта, обрабатывающего sources.jpg, создающего
-    contrasted.jpg, contours.jpg и calibrate.jpg.
-    Находит вертикальные чёрные полосы и рассчитывает среднее расстояние.
+    1) Читаем sources.jpg
+    2) Контрастируем -> contrasted.jpg
+    3) Ищем вертикальные полосы на контрастной картинке (binary),
+       заливаем их красным -> contours.jpg,
+       но x-координату берём как minX по реальному контуру
+    4) Считаем среднее расстояние -> coefficient
+    5) Рисуем calibrate.jpg, где короткая красная линия
+       действительно совпадает с подсчитанным расстоянием
     """
     try:
         source_path = os.path.join(calibration_in_work_dir, 'sources.jpg')
         if not os.path.exists(source_path):
             return JsonResponse({'error': 'sources.jpg not found'}, status=404)
 
-        # 1) Читаем sources.jpg
+        # (1) Читаем исходник
         src = cv2.imread(source_path, cv2.IMREAD_COLOR)
         if src is None:
             return JsonResponse({'error': 'Cannot read sources.jpg'}, status=500)
 
-        # 2) Контраст -> contrasted.jpg (например, через CLAHE)
+        # (2) Повышаем контраст -> contrasted.jpg
         contrasted = increase_contrast(src)
         contrasted_path = os.path.join(calibration_in_work_dir, 'contrasted.jpg')
         cv2.imwrite(contrasted_path, contrasted)
 
-        # 3) Поиск вертикальных полос -> contours.jpg
-        #    На самом деле можно говорить именно о поиске "чёрных вертикальных" линий.
-        #    Для простоты: делаем бинаризацию, ищем чёрные области, а потом определяем
-        #    левый край каждой чёрной области. Сохраним промежуточную картинку.
+        # (3) Бинаризуем и ищем вертикальные полосы -> contours.jpg
+        #     Для отрисовки красным будем использовать копию контрастной картинки.
         binary = find_vertical_lines(contrasted)
-        contours_img = src.copy()
-        # Чтобы отрисовать найденные края, например, небольшими красными линиями
-        # (ниже в find_vertical_lines() у нас возвращается список X-координат).
+        contours_img = contrasted.copy()
+
+        # detect_black_strips_left_edges теперь ищет minX в контуре
         xs = detect_black_strips_left_edges(binary, contours_img)
         contours_path = os.path.join(calibration_in_work_dir, 'contours.jpg')
         cv2.imwrite(contours_path, contours_img)
 
-        # 4) Вычисляем среднее расстояние между соседними X-координатами
-        #    (x2 - x1), (x3 - x2), ...
+        # Если не нашли хотя бы 2 полосы — 0.0
         if len(xs) < 2:
-            # Недостаточно полос для вычисления
+            calibrate_path = os.path.join(calibration_in_work_dir, 'calibrated.jpg')
+            cv2.imwrite(calibrate_path, contrasted)
             return JsonResponse({'status': 'success', 'coefficient': 0.0})
 
-        distances = []
-        for i in range(1, len(xs)):
-            distances.append(xs[i] - xs[i-1])
+        # Считаем расстояния между соседними x
+        distances = [xs[i] - xs[i-1] for i in range(1, len(xs))]
         avg_distance = sum(distances) / len(distances)
 
-        # 5) Итоговое изображение calibrate.jpg
-        #    Рисуем синюю линию от x1 до xN по горизонтали, на некоторой Y
-        #    Рисуем красную линию, соответствующую "среднему отрезку" (или "центральному").
-        final_img = src.copy()
+        # (4) Рисуем финальное изображение (calibrated.jpg) на контрасте
+        final_img = contrasted.copy()
         h, w = final_img.shape[:2]
 
-        # Считаем y для синей линии: "посередине со смещением вниз на 10%"
-        # Например: y_blue = int(h * 0.5 + 0.1 * h) = int(0.6 * h)
-        y_blue = int(0.5 * h + 0.1 * h)
-        x_left = xs[0]
-        x_right = xs[-1]
-        cv2.line(final_img, (x_left, y_blue), (x_right, y_blue), (255, 0, 0), 2)
+        # Синяя горизонтальная линия (между самой левой и самой правой полосой)
+        y_blue = int(h * 0.6)
+        cv2.line(final_img, (xs[0], y_blue), (xs[-1], y_blue), (255, 0, 0), 2)
 
-        # Выберем "средний отрезок"
-        # Допустим, distances = [d1, d2, d3, ...], их на 1 меньше, чем полос
-        # Средний индекс:
-        mid_index = len(distances) // 2  # если четное количество, floor
-        # Допустим, он d_mid = distances[mid_index]
+        # "Центральное" расстояние (для наглядности)
+        mid_index = len(distances) // 2
         d_mid = distances[mid_index]
-        # Чтобы нарисовать красную линию, нужно знать x_s и x_e для него
-        # x_s = xs[mid_index]
-        # x_e = xs[mid_index+1]
         x_s = xs[mid_index]
         x_e = xs[mid_index + 1]
 
-        # y для красной линии (посередине со смещением вверх на 10%)
-        y_red = int(0.5 * h - 0.1 * h)
+        y_red = int(h * 0.5)
         cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
 
-        # Подписываем над красной линией значение d_mid (до 3 знаков)
-        # Сдвинемся чуть выше линии, пусть на 10px
-        text_pos = ( (x_s + x_e) // 2, y_red - 10 )
-        cv2.putText(final_img, f"{d_mid:.3f}", text_pos,
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 4)
-        cv2.putText(final_img, f"{d_mid:.3f}", text_pos,
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2)
+        # Подписываем именно d_mid (или avg_distance, если хотите)
+        text_pos = ((x_s + x_e) // 2, y_red - 10)
+        text_val = f"{avg_distance:.3f}"
+        cv2.putText(final_img, text_val, text_pos, cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (255,255,255), 3)
+        cv2.putText(final_img, text_val, text_pos, cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0,0,0), 1)
 
-        # Сохраняем final_img
         calibrate_path = os.path.join(calibration_in_work_dir, 'calibrated.jpg')
         cv2.imwrite(calibrate_path, final_img)
 
         return JsonResponse({
             'status': 'success',
-            'coefficient': round(avg_distance, 3)  # Можно вернуть округлённое
+            'coefficient': round(avg_distance, 3)
         })
 
     except Exception as e:
@@ -259,42 +249,76 @@ def execute_calibration(request):
 
 
 def increase_contrast(src):
-    """Простейший пример поднятия контраста через CLAHE."""
+    """
+    Простейший пример поднятия контраста через CLAHE
+    Возвращаем BGR картинку
+    """
     gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    contrasted = clahe.apply(gray)
-    # Вернём обратно BGR-картинку, если хотим
-    return cv2.cvtColor(contrasted, cv2.COLOR_GRAY2BGR)
+    c_gray = clahe.apply(gray)
+    return cv2.cvtColor(c_gray, cv2.COLOR_GRAY2BGR)
+
 
 def find_vertical_lines(img_bgr):
     """
-    Возвращает ч/б (binary) изображение, где чёрные полосы могут быть выделены.
-    Это упрощённый пример, можно менять логику.
+    Возвращает бинарную маску, где изначально тёмные вертикальные полосы
+    становятся белыми (255).
+    Здесь пример на адаптивном пороге + инвертировании + морфологии.
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    # Для наглядности предполагаем, что чёрные полосы < 50
-    _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
-    return binary
+
+    # Адаптивный порог (инвертированный)
+    binary_inv = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        blockSize=31,  # Подбирайте
+        C=10
+    )
+    # Морфология, чтобы слегка склеить вертикальные полосы
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 7))
+    closed = cv2.morphologyEx(binary_inv, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    return closed
+
 
 def detect_black_strips_left_edges(binary, draw_img):
     """
-    Ищем отдельные вертикальные чёрные области,
-    возвращаем список X-координат (левых краёв).
-    Для наглядности рисуем красный маркер в draw_img.
+    Ищем контуры (белые полосы) на бинарной маске.
+    - Для каждого контура берём minX среди всех пикселей этого контура
+    - Закрашиваем контур красным
+    - Возвращаем список всех minX, отсортированный
     """
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
     xs = []
+    h, w = draw_img.shape[:2]
+
     for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        # Считаем, что это вертикальная полоса, если w < 50% ширины всего изображения,
-        # h достаточно большой, и т.п. Здесь можно добавить логику фильтрации.
-        # В простом случае — считаем всё чёрное вертикальной полосой.
-        xs.append(x)
+        pts = cnt.reshape(-1, 2)  # (N, 2) массив x,y
+        x_min = np.min(pts[:, 0])
+        y_min = np.min(pts[:, 1])
+        cw = np.max(pts[:, 0]) - x_min
+        ch = np.max(pts[:, 1]) - y_min
 
-        # Нарисуем небольшой маркер
-        cv2.circle(draw_img, (x, y), 5, (0, 0, 255), -1)
+        # Фильтрация «неадекватных» пятен
+        if cw > w*0.7:
+            # Слишком широкое
+            continue
+        if ch < 5:
+            # Слишком низкое
+            continue
 
-    # Сортируем по возрастанию X (слева направо)
+        # Можно добавить aspect_ratio, если хотите отсекать "слишком широкие"
+        aspect_ratio = ch / (cw+1)
+        if aspect_ratio < 6.0:
+           continue
+
+        # Заливка красным
+        cv2.drawContours(draw_img, [cnt], -1, (0, 0, 255), cv2.FILLED)
+
+        xs.append(x_min)
+
     xs.sort()
     return xs
 

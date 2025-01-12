@@ -45,7 +45,8 @@ window.analyzeMixin = {
     methods: {
         // Получить URL для изображения
         getImageUrl(fileName, folder) {
-            return `/media/research/in_work/${folder}/${fileName}`;
+            const timestamp = new Date().getTime(); // Текущая метка времени
+            return `/media/research/in_work/${folder}/${fileName}?t=${timestamp}`;
         },
         // Сменить папку для отображения
         changeFolder(folder) {

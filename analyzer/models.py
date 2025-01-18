@@ -10,9 +10,11 @@ class Calibration(models.Model):
     name = models.CharField(max_length=255)  # Название калибровки
     microscope = models.CharField(max_length=255)  # Название микроскопа
     coefficient = models.FloatField()  # Коэффициент калибровки
+    division_price = models.CharField(max_length=50)  # Цена деления (например, "1 мкм")
 
     def __str__(self):
         return f"{self.name} ({self.microscope})"
+
 
 
 class Research(models.Model):
@@ -80,4 +82,25 @@ MICROSCOPES = [
     Microscope("По умолчанию", MicroscopeType.DEFAULT),
     Microscope("М001", MicroscopeType.MANUAL),
     Microscope("М002", MicroscopeType.AUTOMATIC),
+]
+
+class DivisionPrice:
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+    def __str__(self):
+        return f"{self.name} ({self.value})"
+
+    def to_dict(self):
+        return {
+            "name": self.name,  # Название, например, "1 мкм"
+            "value": self.value,  # Значение, например, 1 или 10
+        }
+
+
+# Статичный список для описания Цены деления
+DIVISION_PRICES = [
+    DivisionPrice("1 мкм", 1),
+    DivisionPrice("10 мкм", 10),
 ]

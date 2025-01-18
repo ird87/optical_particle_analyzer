@@ -4,7 +4,9 @@ window.calibrationMixin = {
         return {
             calibName: '',
             calibCoefficient: '',
+            calibDivisionPrices: '',
             calibSelectedMicroscope: null,
+            calibSelectedDivisionPrice: null,
             calibFileStates: ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg'],
             calibFileExistStates: { 'sources.jpg': false, 'contrasted.jpg': false, 'contours.jpg': false, 'calibrated.jpg': false },
             calibFileNames: {
@@ -16,6 +18,7 @@ window.calibrationMixin = {
             calibCurrentView: 'sources.jpg', // Активный файл для превью
             isCalibLoadVisible: false,
             calibrations: [],
+
             selectedCalibrationRow: null,
         };
     },
@@ -64,15 +67,22 @@ window.calibrationMixin = {
             }
         },
         async runCalibration() {
-            const response = await fetch('/api/calibrations/execute/', { method: 'POST' });
+            const response = await fetch('/api/calibrations/execute/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}), // Отправляем пустой объект, если других данных нет
+            });
             if (response.ok) {
                 const { coefficient } = await response.json();
                 this.calibCoefficient = parseFloat(coefficient).toFixed(3);
                 this.calibFileExistStates['contrasted.jpg'] = true;
                 this.calibFileExistStates['contours.jpg'] = true;
                 this.calibFileExistStates['calibrated.jpg'] = true;
-                this.calibCurrentView = 'calibrated.jpg'; // Переходим к результату
+                this.calibCurrentView = 'calibrated.jpg';
+            } else {
+                console.error('Ошибка выполнения калибровки');
             }
-        },
+        }
+
     },
 };

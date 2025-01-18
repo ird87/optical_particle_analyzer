@@ -15,10 +15,11 @@
                 </button>
             </div>
 
-            <!-- Основной блок: название, микроскоп, коэффициент, кнопка "Сохранить" -->
+           <!-- Основной блок: название, цена деления, микроскоп, коэффициент, кнопка "Сохранить" -->
             <div class="border p-2 pb-0 mb-2">
                 <div class="row mb-2">
-                    <div class="col-md-9">
+                    <!-- Название -->
+                    <div class="col-md-6">
                         <label for="calib-name-input" class="form-label">Название:</label>
                         <input
                             type="text"
@@ -27,23 +28,29 @@
                             class="form-control"
                         >
                     </div>
-                    <div class="col-md-3">
-                        <label for="coefficient-input" class="form-label">K (коэффициент):</label>
-                        <input
-                            type="number"
-                            step="0.0001"
-                            id="coefficient-input"
-                            v-model="calibCoefficient"
-                            class="form-control"
+                    <!-- Цена деления -->
+                    <div class="col-md-6">
+                        <label for="calib-division-select" class="form-label">Цена деления:</label>
+                        <select
+                            id="calib-division-select"
+                            v-model="calibSelectedDivisionPrice"
+                            class="form-select"
                         >
+                            <option
+                                v-for="price in divisionPrices"
+                                :key="price.name"
+                                :value="price"
+                            >
+                                [[ price.name ]]
+                            </option>
+                        </select>
                     </div>
                 </div>
 
                 <div class="row mb-3">
+                    <!-- Микроскоп -->
                     <div class="col-md-6">
-                        <label for="calib-microscope-select" class="form-label">
-                            Выбор микроскопа:
-                        </label>
+                        <label for="calib-microscope-select" class="form-label">Выбор микроскопа:</label>
                         <select
                             id="calib-microscope-select"
                             v-model="calibSelectedMicroscope"
@@ -58,8 +65,19 @@
                             </option>
                         </select>
                     </div>
-                    <div class="col-md-6 d-flex align-items-end justify-content-end">
-                        <!-- Кнопка "Сохранить" -->
+                    <!-- Коэффициент -->
+                    <div class="col-md-3">
+                        <label for="coefficient-input" class="form-label">K (коэффициент):</label>
+                        <input
+                            type="number"
+                            step="0.0001"
+                            id="coefficient-input"
+                            v-model="calibCoefficient"
+                            class="form-control"
+                        >
+                    </div>
+                    <!-- Сохранить -->
+                    <div class="col-md-3 d-flex align-items-end justify-content-end">
                         <button
                             class="btn btn-success"
                             @click="saveCalibration"
@@ -170,13 +188,15 @@
 
 <!-- Кнопки управления -->
 <div class="d-flex mb-3" style="width: 400px;">
+    <!-- Кнопка управления калибровкой -->
     <button
         class="btn btn-primary flex-fill"
-        :disabled="!calibFileExistStates['sources.jpg']"
+        :disabled="!calibFileExistStates['sources.jpg'] || !calibSelectedDivisionPrice"
         @click="runCalibration"
     >
         Калибровка
     </button>
+
 </div>
                 </div>
             </div>

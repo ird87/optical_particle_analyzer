@@ -31,17 +31,35 @@
                     <div class="col-md-6">
                         <label for="microscope-select" class="form-label">Выбор микроскопа:</label>
                        <select id="microscope-select" v-model="selectedMicroscope" class="form-select">
-                        <option v-for="microscope in microscopes" :key="microscope.name" :value="microscope">
-                            [[ microscope.name ]]
-                        </option>
+
+                         <option :value="null" disabled>Выберите микроскоп</option>
+                            <option v-for="microscope in microscopes" :key="microscope.name" :value="microscope">
+                                [[ microscope.name ]]
+                            </option>
                     </select>
                     </div>
-                    <div class="col-md-6">
-                        <label for="calibration-select" class="form-label">Выбор калибровки:</label>
-                        <select id="calibration-select" v-model="selectedCalibration" class="form-select">
-                            <option disabled>Калибровка пока не реализована</option>
-                        </select>
-                    </div>
+
+                   <div class="col-md-6">
+                    <label for="calibration-select" class="form-label">Выбор калибровки:</label>
+                    <select
+                        id="calibration-select"
+                        v-model="selectedCalibration"
+                        class="form-select"
+                        :disabled="isCalibrationSelectDisabled"
+                    >
+                        <option :value="null" disabled>
+                            [[ getCalibrationPlaceholder() ]]
+                        </option>
+                        <option
+                            v-for="calibration in availableCalibrations"
+                            :key="calibration.id"
+                            :value="calibration"
+                        >
+                            [[ calibration.name ]] (k=[[ calibration.coefficient ]])
+                        </option>
+                    </select>
+                </div>
+
                 </div>
             </div>
         </div>
@@ -64,7 +82,8 @@
                     <td>[[ research.name ]]</td>
                     <td>[[ research.employee ]]</td>
                     <td>[[ research.microscope ]]</td>
-                    <td>[[ research.date ]]</td>
+                    <td>[[ formatDate(research.date) ]]</td>
+
                 </tr>
             </tbody>
         </table>
@@ -121,13 +140,13 @@
                 >
                     Удалить
                 </button>
-                <button
-                    class="btn flex-fill btn-success ms-1"
-                    @click="analyzeAllFiles"
-                    :disabled="files.length === 0"
-                >
-                    Анализировать
-                </button>
+               <button
+    class="btn flex-fill btn-success ms-1"
+    @click="analyzeAllFiles"
+    :disabled="isAnalyzeButtonDisabled"
+>
+    Анализировать
+</button>
             </div>
 
         </div>

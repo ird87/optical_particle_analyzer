@@ -7,6 +7,7 @@ window.analyzeMixin = {
             employee: '',
             selectedMicroscope: null,
             selectedCalibration: null,
+            calibrations: [], // Список доступных калибровок
             files: [],
             currentFile: null,
             imageUrl: '',
@@ -27,7 +28,26 @@ window.analyzeMixin = {
         };
     },
     computed: {
-        // Кнопка "Сохранить" доступна только если есть результаты
+        availableCalibrations() {
+        if (!this.selectedMicroscope) {
+            return [];
+        }
+        return this.calibrations.filter(calibration =>
+            calibration.microscope === this.selectedMicroscope.name
+        );
+    },
+
+    // Доступность селектора калибровки
+    isCalibrationSelectDisabled() {
+        return !this.selectedMicroscope;
+    },
+
+    // Обновленное условие для кнопки "Анализировать"
+    isAnalyzeButtonDisabled() {
+        return this.files.length === 0 ||
+               !this.selectedCalibration ||
+               !this.selectedMicroscope;
+    },
         isSaveButtonDisabled() {
             return this.results.length === 0;
         },
@@ -42,11 +62,33 @@ window.analyzeMixin = {
             }
         },
     },
+    watch: {
+    // Отслеживание изменения микроскопа
+    selectedMicroscope(newMicroscope, oldMicroscope) {
+        if (newMicroscope !== oldMicroscope) {
+            // Сбрасываем выбранную калибровку при смене микроскопа
+            this.selectedCalibration = null;
+
+        }
+    }
+},
     methods: {
         // Получить URL для изображения
         getImageUrl(fileName, folder) {
             const timestamp = new Date().getTime(); // Текущая метка времени
             return `/media/research/in_work/${folder}/${fileName}?t=${timestamp}`;
+        },
+        async fetchCalibrations() {
+            try {
+                const response = await fetch('/api/calibrations/');
+                if (response.ok) {
+                    this.calibrations = await response.json();
+                } else {
+                    console.error('Ошибка загрузки калибровок.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровок:', error);
+            }
         },
         // Сменить папку для отображения
         changeFolder(folder) {
@@ -57,6 +99,15 @@ window.analyzeMixin = {
                 }
             }
         },
+         getCalibrationPlaceholder() {
+        if (!this.selectedMicroscope) {
+            return 'Сначала выберите микроскоп';
+        } else if (this.availableCalibrations.length === 0) {
+            return 'Нет калибровок для выбранного микроскопа';
+        } else {
+            return 'Выберите калибровку';
+        }
+    },
         // Обработка выбора файлов
         async handleFileSelect(event) {
             const newFiles = Array.from(event.target.files);
@@ -114,6 +165,9 @@ window.analyzeMixin = {
                 const response = await fetch('/api/researches/execute/', { // Новый URL
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        calibration_id: this.selectedCalibration?.id || 0
+                    }),
                 });
 
                 if (response.ok) {
@@ -221,6 +275,15 @@ window.analyzeMixin = {
                 this.selectedMicroscope = this.microscopes.find(
                     (microscope) => microscope.name === research.microscope
                 );
+               this.$nextTick(() => {
+                if (research.calibration) {
+                    this.selectedCalibration = this.availableCalibrations.find(
+                        (calibration) => calibration.id === research.calibration.id
+                    );
+                } else {
+                    this.selectedCalibration = null;
+                }
+            });
 
                 this.files = [];
 
@@ -339,6 +402,23 @@ window.analyzeMixin = {
 
         // Инициализация первого микроскопа
         this.selectedMicroscope = null;
+        this.fetchCalibrations();
+        this.selectedCalibration = null;
         console.log(this.selectedMicroscope);
     },
+    formatDate(dateString) {
+            if (!dateString) return '-';
+
+            const date = new Date(dateString);
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            };
+
+            return date.toLocaleDateString('ru-RU', options);
+        },
 };

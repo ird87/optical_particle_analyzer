@@ -2,6 +2,7 @@ window.calibrationMixin = {
     delimiters: ['[[', ']]'],
     data() {
         return {
+            calibId: 0,
             calibName: '',
             calibCoefficient: '',
             calibDivisionPrices: '',
@@ -37,8 +38,11 @@ window.calibrationMixin = {
             return this.calibSelectedMicroscope?.type === 'DEFAULT';
         },
         toggleCalibLoadBlock() {
-            this.isCalibLoadVisible = !this.isCalibLoadVisible;
-        },
+    this.isCalibLoadVisible = !this.isCalibLoadVisible;
+    if (this.isCalibLoadVisible) {
+        this.fetchCalibrations(); // Загружаем список при открытии
+    }
+},
         getCalibImageUrl(file) {
             const timestamp = new Date().getTime(); // Текущая метка времени
             return `/media/calibration/in_work/${file}?t=${timestamp}`;
@@ -82,7 +86,161 @@ window.calibrationMixin = {
             } else {
                 console.error('Ошибка выполнения калибровки');
             }
-        }
+        },
+        async saveCalibration() {
+            try {
+                const response = await fetch('/api/calibrations/save/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        id: this.calibId || 0, // Добавьте calibId в data()
+                        name: this.calibName,
+                        microscope: this.calibSelectedMicroscope?.name,
+                        coefficient: parseFloat(this.calibCoefficient),
+                        division_price: this.calibSelectedDivisionPrice?.name,
+                    }),
+                });
 
+                if (response.ok) {
+                    const data = await response.json();
+                    this.calibId = data.id;
+                    console.log('Сохранена калибровка с ID:', data.id);
+                } else {
+                    console.error('Ошибка сохранения калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения калибровки:', error);
+            }
+        },
+
+        async fetchCalibrations() {
+            try {
+                const response = await fetch('/api/calibrations/');
+                if (response.ok) {
+                    this.calibrations = await response.json();
+                } else {
+                    console.error('Ошибка загрузки калибровок.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровок:', error);
+            }
+        },
+
+        async loadCalibration(calibration) {
+            try {
+                const response = await fetch(`/api/calibrations/${calibration.id}/load/`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const calib = data.calibration;
+
+                    // Установка данных калибровки
+                    this.calibId = calib.id;
+                    this.calibName = calib.name;
+                    this.calibCoefficient = calib.coefficient;
+
+                    // Установка микроскопа
+                    this.calibSelectedMicroscope = this.microscopes.find(
+                        (microscope) => microscope.name === calib.microscope
+                    );
+
+                    // Установка цены деления
+                    this.calibSelectedDivisionPrice = this.divisionPrices.find(
+                        (price) => price.name === calib.division_price
+                    );
+
+                    // Установка состояний файлов
+                    if (data.existing_files) {
+                        this.calibFileExistStates = {
+                            'sources.jpg': false,
+                            'contrasted.jpg': false,
+                            'contours.jpg': false,
+                            'calibrated.jpg': false
+                        };
+
+                        data.existing_files.forEach(fileName => {
+                            this.calibFileExistStates[fileName] = true;
+                        });
+
+                        // Установка активного вида
+                        if (data.existing_files.includes('calibrated.jpg')) {
+                            this.calibCurrentView = 'calibrated.jpg';
+                        } else if (data.existing_files.includes('sources.jpg')) {
+                            this.calibCurrentView = 'sources.jpg';
+                        }
+                    }
+
+                    // Скрытие блока загрузки
+                    this.toggleCalibLoadBlock();
+
+                    console.log('Данные калибровки загружены:', data);
+                } else {
+                    console.error('Ошибка загрузки калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровки:', error);
+            }
+        },
+
+        selectCalibration(calibration) {
+            this.selectedCalibrationRow = calibration;
+        },
+
+        async deleteCalibration(calibration) {
+            if (!calibration) return;
+
+            try {
+                const response = await fetch(`/api/calibrations/${calibration.id}/delete/`, {
+                    method: 'DELETE',
+                });
+                if (response.ok) {
+                    this.calibrations = this.calibrations.filter(c => c.id !== calibration.id);
+                    this.selectedCalibrationRow = null;
+                } else {
+                    console.error('Ошибка удаления калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка удаления калибровки:', error);
+            }
+        },
+
+        createNewCalibration() {
+            // Очистка всех полей
+            this.calibId = 0;
+            this.calibName = '';
+            this.calibCoefficient = '';
+            this.calibSelectedMicroscope = null;
+            this.calibSelectedDivisionPrice = null;
+
+            // Сброс состояний файлов
+            this.calibFileExistStates = {
+                'sources.jpg': false,
+                'contrasted.jpg': false,
+                'contours.jpg': false,
+                'calibrated.jpg': false
+            };
+            this.calibCurrentView = 'sources.jpg';
+
+            // Скрытие блока загрузки если он открыт
+            if (this.isCalibLoadVisible) {
+                this.toggleCalibLoadBlock();
+            }
+        },
+        formatDate(dateString) {
+            if (!dateString) return '-';
+
+            const date = new Date(dateString);
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            };
+
+            return date.toLocaleDateString('ru-RU', options);
+        },
     },
 };

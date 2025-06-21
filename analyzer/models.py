@@ -11,6 +11,7 @@ class Calibration(models.Model):
     microscope = models.CharField(max_length=255)  # Название микроскопа
     coefficient = models.FloatField()  # Коэффициент калибровки
     division_price = models.CharField(max_length=50)  # Цена деления (например, "1 мкм")
+    date = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.name} ({self.microscope})"

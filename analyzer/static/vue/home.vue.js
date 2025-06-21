@@ -26,11 +26,11 @@ const app = Vue.createApp({
         this.divisionPrices = JSON.parse(divisionPricesData);
 
         // Выборка нескольких полей
-        const selectedFields2 = this.division_prices.map(division_price => ({
-            name: division_price.name,
-            localizedType: division_price.value
-        }));
-        console.log(selectedFields2);
+         const selectedFields2 = this.divisionPrices.map(division_price => ({
+        name: division_price.name,
+        localizedType: division_price.value
+    }));
+    console.log(selectedFields2);
     },
 });
 

@@ -395,18 +395,19 @@ window.analyzeMixin = {
         captureImage() {
             console.log("Снимок сделан");
         },
+        openImageModal() {
+        if (this.currentFile && this.selectedFolder) {
+            const modal = new bootstrap.Modal(document.getElementById('imageModal'));
+            modal.show();
+        }
     },
-    mounted() {
-        // Инициализация при загрузке страницы
-        this.lastUsedIndex = 0;
-
-        // Инициализация первого микроскопа
-        this.selectedMicroscope = null;
-        this.fetchCalibrations();
-        this.selectedCalibration = null;
-        console.log(this.selectedMicroscope);
+    closeImageModal() {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('imageModal'));
+        if (modal) {
+            modal.hide();
+        }
     },
-    formatDate(dateString) {
+        formatDate(dateString) {
             if (!dateString) return '-';
 
             const date = new Date(dateString);
@@ -421,4 +422,18 @@ window.analyzeMixin = {
 
             return date.toLocaleDateString('ru-RU', options);
         },
+    },
+
+
+    mounted() {
+        // Инициализация при загрузке страницы
+        this.lastUsedIndex = 0;
+
+        // Инициализация первого микроскопа
+        this.selectedMicroscope = null;
+        this.fetchCalibrations();
+        this.selectedCalibration = null;
+        console.log(this.selectedMicroscope);
+    },
+
 };

@@ -1,209 +1,116 @@
-{% load static %}
-
-<div id="app_calibration">
-    <calibration-block>
-        <h1>Калибровка</h1>
-
-        <!-- Блок с кнопками "Новая" / "Загрузить" -->
-        <div v-if="!isCalibLoadVisible">
-            <div class="col-md-4 d-flex justify-content-between text-left mb-2">
-                <button class="btn flex-fill btn-primary me-1" @click="createNewCalibration">
-    Новая
-</button>
-                <button class="btn flex-fill btn-secondary ms-1" @click="toggleCalibLoadBlock">
-    Загрузить
-</button>
-            </div>
-
-           <!-- Основной блок: название, цена деления, микроскоп, коэффициент, кнопка "Сохранить" -->
-            <div class="border p-2 pb-0 mb-2">
-                <div class="row mb-2">
-                    <!-- Название -->
-                    <div class="col-md-6">
-                        <label for="calib-name-input" class="form-label">Название:</label>
-                        <input
-                            type="text"
-                            id="calib-name-input"
-                            v-model="calibName"
-                            class="form-control"
-                        >
-                    </div>
-                    <!-- Цена деления -->
-                    <div class="col-md-6">
-                        <label for="calib-division-select" class="form-label">Цена деления:</label>
-                        <select
-                            id="calib-division-select"
-                            v-model="calibSelectedDivisionPrice"
-                            class="form-select"
-                        >
-                            <option
-                                v-for="price in divisionPrices"
-                                :key="price.name"
-                                :value="price"
-                            >
-                                [[ price.name ]]
-                            </option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="row mb-3">
-                    <!-- Микроскоп -->
-                    <div class="col-md-6">
-                        <label for="calib-microscope-select" class="form-label">Выбор микроскопа:</label>
-                        <select
-                            id="calib-microscope-select"
-                            v-model="calibSelectedMicroscope"
-                            class="form-select"
-                        >
-                            <option
-                                v-for="microscope in microscopes"
-                                :key="microscope.name"
-                                :value="microscope"
-                            >
-                                [[ microscope.name ]]
-                            </option>
-                        </select>
-                    </div>
-                    <!-- Коэффициент -->
-                <div class="col-md-3">
-    <label for="coefficient-input" class="form-label text-primary ">
-        <i class="bi bi-calculator me-1"></i>K (коэффициент):
-    </label>
-    <input
-        type="number"
-        step="0.0001"
-        id="coefficient-input"
-        v-model="calibCoefficient"
-        class="form-control border-primary "
-        placeholder="Будет рассчитан при калибровке"
-    >
-</div>
-
-                    <!-- Сохранить -->
-                    <div class="col-md-3 d-flex align-items-end justify-content-end">
-                        <button
-                            class="btn btn-success"
-                            @click="saveCalibration"
-                            :disabled="isSaveDisabled"
-                        >
-                            Сохранить
-                        </button>
-                    </div>
-                </div>
-            </div>
+{% load static %} <div id="app_calibration">
+  <calibration-block>
+    <h1>Калибровка</h1>
+    <!-- Блок с кнопками "Новая" / "Загрузить" -->
+    <div v-if="!isCalibLoadVisible">
+      <div class="col-md-4 d-flex justify-content-between text-left mb-2">
+        <button class="btn flex-fill btn-primary me-1" @click="createNewCalibration"> Новая </button>
+        <button class="btn flex-fill btn-secondary ms-1" @click="toggleCalibLoadBlock"> Загрузить </button>
+      </div>
+      <!-- Основной блок: название, цена деления, микроскоп, коэффициент, кнопка "Сохранить" -->
+      <div class="border p-2 pb-0 mb-2">
+        <div class="row mb-2">
+          <!-- Название -->
+          <div class="col-md-6">
+            <label for="calib-name-input" class="form-label">Название:</label>
+            <input type="text" id="calib-name-input" v-model="calibName" class="form-control">
+          </div>
+          <!-- Цена деления -->
+          <div class="col-md-6">
+            <label for="calib-division-select" class="form-label">Цена деления:</label>
+            <select id="calib-division-select" v-model="calibSelectedDivisionPrice" class="form-select">
+              <option v-for="price in divisionPrices" :key="price.name" :value="price"> [[ price.name ]] </option>
+            </select>
+          </div>
         </div>
-
-        <!-- Блок загрузки (таблица калибровок) -->
-        <div v-if="isCalibLoadVisible">
-            <div class="border p-3 mb-4">
-                <h4>Загрузка калибровки</h4>
-                <table class="table table-bordered table-sm">
-                    <thead>
-                        <tr>
-                            <th>Название</th>
-                            <th>Микроскоп</th>
-                            <th>Коэффициент</th>
-                            <th>Дата</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr
-                            v-for="calib in calibrations"
-                            :key="calib.id"
-                            @click="selectCalibration(calib)"
-                            :class="{'table-active': calib === selectedCalibrationRow}"
-                            style="cursor: pointer;"
-                        >
-                            <td>[[ calib.name ]]</td>
-                            <td>[[ calib.microscope ]]</td>
-                            <td>[[ calib.coefficient ]]</td>
-                            <td>[[ formatDate(calib.date) ]]</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <!-- Кнопки управления -->
-                <div class="d-flex col-md-6 justify-content-end mt-3 ms-auto">
-                    <button
-                        class="btn flex-fill btn-danger me-1"
-                        @click="deleteCalibration(selectedCalibrationRow)"
-                        :disabled="!selectedCalibrationRow"
-                    >
-                        Удалить
-                    </button>
-                    <button
-                        class="btn flex-fill btn-primary me-1 ms-1"
-                        @click="loadCalibration(selectedCalibrationRow)"
-                        :disabled="!selectedCalibrationRow"
-                    >
-                        Загрузить
-                    </button>
-                    <button
-                        class="btn flex-fill btn-secondary ms-1"
-                        @click="toggleCalibLoadBlock"
-                    >
-                        Отменить
-                    </button>
-                </div>
-            </div>
+        <div class="row mb-3">
+          <!-- Микроскоп -->
+          <div class="col-md-6">
+            <label for="calib-microscope-select" class="form-label">Выбор микроскопа:</label>
+            <select id="calib-microscope-select" v-model="calibSelectedMicroscope" class="form-select">
+              <option v-for="microscope in microscopes" :key="microscope.name" :value="microscope"> [[ microscope.name ]] </option>
+            </select>
+          </div>
+          <!-- Коэффициент -->
+          <div class="col-md-3">
+            <label for="coefficient-input" class="form-label text-primary ">
+              <i class="bi bi-calculator me-1"></i>K (коэффициент): </label>
+            <input type="number" step="0.0001" id="coefficient-input" v-model="calibCoefficient" class="form-control border-primary " placeholder="Будет рассчитан при калибровке">
+          </div>
+          <!-- Сохранить -->
+          <div class="col-md-3 d-flex align-items-end justify-content-end">
+            <button class="btn btn-success" @click="saveCalibration" :disabled="isSaveDisabled"> Сохранить </button>
+          </div>
         </div>
-
-        <!-- Превью -->
-        <div class="border p-3" v-if="!isCalibLoadVisible">
-            <div class="row">
-                <div class="col-md-4 d-flex flex-column align-items-center">
-                    <h4 class="text-center">Превью изображения:</h4>
-
-                    <!-- Переключатели (разные имена файлов) -->
-                    <div class="col-md-12 d-flex justify-content-center mb-3">
-                        <div class="btn-group" style="width: 350px;">
-                            <button
-                                v-for="filename in calibFileStates"
-                                :key="filename"
-                                class="btn btn-outline-primary"
-                                :class="{ active: calibCurrentView === filename }"
-                                :disabled="!calibFileExistStates[filename]"
-                                @click="changeCalibFile(filename)"
-                            >
-                                [[ calibFileNames[filename] ]]
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Превью -->
-                    <div
-                        class="img-thumbnail d-flex justify-content-center align-items-center mb-3"
-                        style="width: 350px; height: 350px; background-color: #f8f9fa; border: 1px solid #dee2e6;"
-                    >
-                        <img
-                            v-if="isCalibCurrentFileAvailable"
-                            :src="getCalibImageUrl(calibCurrentView)"
-                            alt="Превью изображения"
-                            style="max-width: 100%; max-height: 100%; object-fit: contain;"
-                        >
-                        <span v-else class="text-muted">Нет изображения</span>
-                    </div>
-
-                   <!-- Форма для выбора файла -->
-<div class="mb-3" style="width: 400px;" v-if="isDefaultCalibrationMicroscope()">
-    <input type="file" id="calib-image-input" @change="handleCalibFileSelect" class="form-control">
-</div>
-
-<!-- Кнопки управления -->
-<div class="d-flex mb-3" style="width: 400px;">
-    <!-- Кнопка управления калибровкой -->
-    <button
-        class="btn btn-primary flex-fill"
-        :disabled="!calibFileExistStates['sources.jpg'] || !calibSelectedDivisionPrice"
-        @click="runCalibration"
-    >
-        Калибровка
-    </button>
-
-</div>
-                </div>
-            </div>
+      </div>
+    </div>
+    <!-- Блок загрузки (таблица калибровок) -->
+    <div v-if="isCalibLoadVisible">
+      <div class="border p-3 mb-4">
+        <h4>Загрузка калибровки</h4>
+        <table class="table table-bordered table-sm">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Микроскоп</th>
+              <th>Коэффициент</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="calib in calibrations" :key="calib.id" @click="selectCalibration(calib)" :class="{'table-active': calib === selectedCalibrationRow}" style="cursor: pointer;">
+              <td>[[ calib.name ]]</td>
+              <td>[[ calib.microscope ]]</td>
+              <td>[[ calib.coefficient ]]</td>
+              <td>[[ formatDate(calib.date) ]]</td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- Кнопки управления -->
+        <div class="d-flex col-md-6 justify-content-end mt-3 ms-auto">
+          <button class="btn flex-fill btn-danger me-1" @click="deleteCalibration(selectedCalibrationRow)" :disabled="!selectedCalibrationRow"> Удалить </button>
+          <button class="btn flex-fill btn-primary me-1 ms-1" @click="loadCalibration(selectedCalibrationRow)" :disabled="!selectedCalibrationRow"> Загрузить </button>
+          <button class="btn flex-fill btn-secondary ms-1" @click="toggleCalibLoadBlock"> Отменить </button>
         </div>
-    </calibration-block>
+      </div>
+    </div>
+    <!-- Превью -->
+    <div class="border p-3" v-if="!isCalibLoadVisible">
+      <div class="row">
+        <div class="col-md-4 d-flex flex-column align-items-center">
+          <h4 class="text-center">Превью изображения:</h4>
+          <!-- Переключатели (разные имена файлов) -->
+          <div class="col-md-12 d-flex justify-content-center mb-3">
+            <div class="btn-group" style="width: 350px;">
+              <button v-for="filename in calibFileStates" :key="filename" class="btn btn-outline-primary" :class="{ active: calibCurrentView === filename }" :disabled="!calibFileExistStates[filename]" @click="changeCalibFile(filename)"> [[ calibFileNames[filename] ]] </button>
+            </div>
+          </div>
+          <!-- Превью -->
+          <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3" style="width: 350px; height: 350px; background-color: #f8f9fa; border: 1px solid #dee2e6; cursor: pointer;" @click="openCalibImageModal">
+            <img v-if="isCalibCurrentFileAvailable" :src="getCalibImageUrl(calibCurrentView)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            <span v-else class="text-muted">Нет изображения</span>
+          </div>
+          <!-- Форма для выбора файла -->
+          <div class="mb-3" style="width: 400px;" v-if="isDefaultCalibrationMicroscope()">
+            <input type="file" id="calib-image-input" @change="handleCalibFileSelect" class="form-control">
+          </div>
+          <!-- Кнопки управления -->
+          <div class="d-flex mb-3" style="width: 400px;">
+            <!-- Кнопка управления калибровкой -->
+            <button class="btn btn-primary flex-fill" :disabled="!calibFileExistStates['sources.jpg'] || !calibSelectedDivisionPrice" @click="runCalibration"> Калибровка </button>
+          </div>
+        </div>
+      </div>
+    </div>
+     <div class="modal fade" id="calibImageModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+          <div class="modal-content">
+           <div class="modal-body d-flex justify-content-center align-items-center">
+  <img v-if="isCalibCurrentFileAvailable" :src="getCalibImageUrl(calibCurrentView)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain; cursor: pointer;" @click="closeCalibImageModal">
+  <span v-else class="text-muted">Нет изображения для отображения</span>
+</div>
+          </div>
+        </div>
+      </div>
+  </calibration-block>
 </div>

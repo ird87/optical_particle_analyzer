@@ -227,6 +227,19 @@ window.calibrationMixin = {
                 this.toggleCalibLoadBlock();
             }
         },
+        openCalibImageModal() {
+            if (this.isCalibCurrentFileAvailable) {
+                console.log("tyt")
+                const modal = new bootstrap.Modal(document.getElementById('calibImageModal'));
+                modal.show();
+            }
+        },
+        closeCalibImageModal() {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('calibImageModal'));
+            if (modal) {
+                modal.hide();
+            }
+        },
         formatDate(dateString) {
             if (!dateString) return '-';
 

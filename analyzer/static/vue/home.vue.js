@@ -5,10 +5,23 @@ const app = Vue.createApp({
             currentTab: 'analyze', // Вкладка по умолчанию
             microscopes: null, // Передача данных из context_processors
             divisionPrices: null, // Передача данных из context_processors
+            results: [],
+            averages: {},
+            selectedResearch: null, // Выбранное исследование
         };
+    },
+    computed: {
+        resultsAvailable() {
+            const hasResults = Array.isArray(this.results) && this.results.length > 0;
+            const avg = this.averages || {};
+            const hasAverages = ['perimeter','area','width','length','dek']
+                .every(k => typeof avg[k] === 'number' && !isNaN(avg[k]));
+            return hasResults && hasAverages;
+        }
     },
     methods: {
         switchTab(tab) {
+            if (tab === 'results' && !this.resultsAvailable) return;
             this.currentTab = tab;
         },
     },
@@ -35,5 +48,7 @@ const app = Vue.createApp({
 });
 
 app.mixin(window.analyzeMixin);
+app.mixin(window.resultsMixin);
 app.mixin(window.calibrationMixin);
-app.mount('#app');
+const vm = app.mount('#app');
+window.app = vm;

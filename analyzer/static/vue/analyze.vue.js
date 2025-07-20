@@ -11,12 +11,10 @@ window.analyzeMixin = {
             files: [],
             currentFile: null,
             imageUrl: '',
-            results: [],
-            averages: {},
             lastUsedIndex: 0,
             isLoadBlockVisible: false, // Переключатель видимости блока загрузки
             researches: [], // Данные исследований
-            selectedResearch: null, // Выбранное исследование
+
             folders: ['sources', 'contrasted', 'contours', 'analyzed'],
             selectedFolder: 'sources',
             folderNames: {
@@ -283,6 +281,7 @@ window.analyzeMixin = {
                 } else {
                     this.selectedCalibration = null;
                 }
+                this.selectResearch.calibration = research.calibration;
             });
 
                 this.files = [];

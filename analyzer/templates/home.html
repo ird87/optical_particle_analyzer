@@ -13,8 +13,15 @@
             <a class="nav-link" :class="{ active: currentTab === 'analyze' }" @click="switchTab('analyze')">Анализ</a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" :class="{ active: currentTab === 'results' }" @click="switchTab('results')">Результаты</a>
+          <a class="nav-link"
+              :class="{ active: currentTab === 'results', disabled: !resultsAvailable }"
+              :aria-disabled="!resultsAvailable"
+              @click="resultsAvailable && switchTab('results')"
+              title="Вкладка появляется после анализа хотя бы одного файла">
+              Результаты
+          </a>
         </li>
+
         <li class="nav-item">
             <a class="nav-link" :class="{ active: currentTab === 'calibration' }" @click="switchTab('calibration')">Калибровка</a>
         </li>
@@ -31,7 +38,9 @@
         </div>
 
         <!-- Блок для результатов -->
-        <div id="results-tab" v-show="currentTab === 'results'"><div class=" mt-4 alert alert-danger">Вкладка "Результаты" ещё не реализована.</div></div>
+        <div id="results-tab" v-show="currentTab === 'results'">
+          {% include "results.html" %}
+        </div>
 
         <!-- Блок для калибровки -->
         <div id="calibration-tab" v-show="currentTab === 'calibration'">
@@ -46,7 +55,9 @@
 
 {% block scripts %}
 
+<script src="{% static 'js/chart.umd.js' %}"></script>
 <script src="{% static 'vue/analyze.vue.js' %}"></script>
+<script src="{% static 'vue/results.vue.js' %}"></script>
 <script src="{% static 'vue/calibration.vue.js' %}"></script>
 <script src="{% static 'vue/home.vue.js' %}"></script>
 

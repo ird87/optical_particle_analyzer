@@ -1,0 +1,2252 @@
+
+-----------------------
+templates/analyze.html
+
+{% load static %}
+<div id="app_analyze">
+  <analyze-block>
+    <h1>Оптический анализатор размеров и формы частиц</h1>
+    <!-- Первый блок -->
+    <div v-if="!isLoadBlockVisible">
+      <!-- Кнопки управления -->
+      <div class=" col-md-4 d-flex justify-content-between text-left mb-2">
+        <button class="btn flex-fill btn-primary me-1" @click="createNewResearch">Новый</button>
+        <button class="btn flex-fill btn-secondary ms-1" @click="toggleLoadBlock">Загрузить</button>
+      </div>
+      <div class="border p-2 pb-0 mb-2">
+        <!-- Поля ввода -->
+        <div class="row mb-2">
+          <div class="col-md-9">
+            <label for="name-input" class="form-label">Название:</label>
+            <input type="text" id="name-input" v-model="name" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label for="employee-input" class="form-label">Сотрудник:</label>
+            <input type="text" id="employee-input" v-model="employee" class="form-control">
+          </div>
+        </div>
+        <!-- Селекторы -->
+        <div class="row mb-2">
+          <div class="col-md-6">
+            <label for="microscope-select" class="form-label">Выбор микроскопа:</label>
+            <select id="microscope-select" v-model="selectedMicroscope" class="form-select">
+              <option :value="null" disabled>Выберите микроскоп</option>
+              <option v-for="microscope in microscopes" :key="microscope.name" :value="microscope"> [[ microscope.name ]] </option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label for="calibration-select" class="form-label">Выбор калибровки:</label>
+            <select id="calibration-select" v-model="selectedCalibration" class="form-select" :disabled="isCalibrationSelectDisabled">
+              <option :value="null" disabled> [[ getCalibrationPlaceholder() ]] </option>
+              <option v-for="calibration in availableCalibrations" :key="calibration.id" :value="calibration"> [[ calibration.name ]] (k=[[ calibration.coefficient ]]) </option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Блок загрузки -->
+    <div v-if="isLoadBlockVisible">
+      <div class="border p-3 mb-4 ">
+        <h4>Загрузка исследований</h4>
+        <table class="table table-bordered table-sm">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Сотрудник</th>
+              <th>Микроскоп</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="research in researches" :key="research.id" @click="selectResearch(research)" :class="{'table-active': research === selectedResearch}">
+              <td>[[ research.name ]]</td>
+              <td>[[ research.employee ]]</td>
+              <td>[[ research.microscope ]]</td>
+              <td>[[ formatDate(research.date) ]]</td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- Кнопки управления -->
+        <div class="d-flex col-md-6  justify-content-end mt-3 ms-auto">
+          <button class="btn flex-fill btn-danger me-1" @click="deleteResearch(selectedResearch)" :disabled="!selectedResearch"> Удалить </button>
+          <button class="btn flex-fill btn-primary me-1 ms-1" @click="loadResearch(selectedResearch)" :disabled="!selectedResearch"> Загрузить </button>
+          <button class="btn flex-fill btn-secondary ms-1" @click="toggleLoadBlock"> Отменить </button>
+        </div>
+      </div>
+    </div>
+    <!-- Второй блок -->
+    <div class="border p-3 pb-0" v-if="!isLoadBlockVisible">
+      <div class="row">
+        <!-- Список файлов -->
+        <div class="col-md-3">
+          <h4>Список файлов:</h4>
+          <ul class="list-group text-center">
+            <li v-for="file in files" :key="file.name" class="list-group-item" :class="{ active: file === currentFile }" @click="selectFile(file)" style="cursor: pointer; user-select: none;"> [[ file.name.split('.')[0] ]] </li>
+          </ul>
+          <div class="d-flex justify-content-between text-left mt-3">
+            <button class="btn flex-fill btn-danger me-1" @click="deleteCurrentFile" :disabled="!currentFile"> Удалить </button>
+            <button class="btn flex-fill btn-success ms-1" @click="analyzeAllFiles" :disabled="isAnalyzeButtonDisabled"> Анализировать </button>
+          </div>
+        </div>
+        <!-- Изображения -->
+        <div class="col-md-4 d-flex flex-column align-items-center">
+          <h4 class="text-center">Превью изображения:</h4>
+          <!-- Переключатели -->
+          <div class="col-md-12 d-flex justify-content-center mb-3">
+            <div class="btn-group" style="width: 400px;">
+              <button class="btn btn-outline-primary" v-for="folder in folders" :key="folder" :class="{ active: folder === selectedFolder }" :disabled="!folderButtonStates[folder]" @click="changeFolder(folder)"> [[ folderNames[folder] ]] </button>
+            </div>
+          </div>
+            <!-- Превью изображения -->
+          <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3" style="width: 400px; height: 400px; background-color: #f8f9fa; border: 1px solid #dee2e6; cursor: pointer;" @click="openImageModal">
+            <img v-if="currentFile && selectedFolder" :src="getImageUrl(currentFile.name, selectedFolder)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            <span v-else class="text-muted">Нет изображения для отображения</span>
+          </div>
+          <!-- Кнопки управления -->
+          <div class="d-flex mb-3" style="width: 400px;" v-if="!isDefaultMicroscope()">
+            <button class="btn btn-info flex-fill" :class="{'me-1': isAutomaticMicroscope() || isManualMicroscope(), 'ms-0': true}" v-if="canShowCamera()" @click="openCamera"> Камера </button>
+            <button class="btn btn-success flex-fill" :class="{'mx-1': canShowCamera() && isManualMicroscope(), 'me-0': isManualMicroscope(), 'ms-1': canShowCamera()}" v-if="isAutomaticMicroscope()" @click="startMicroscope"> Старт </button>
+            <button class="btn btn-primary flex-fill" :class="{'ms-1': isAutomaticMicroscope() || canShowCamera(), 'me-0': true}" v-if="isManualMicroscope()" @click="captureImage"> Снимок </button>
+          </div>
+          <!-- Форма для выбора файлов -->
+          <div class="mb-3" style="width: 400px;" v-if="isDefaultMicroscope()">
+            <input type="file" id="image-input" @change="handleFileSelect" multiple class="form-control">
+          </div>
+        </div>
+        <!-- Результаты анализа -->
+        <div class="col-md-5">
+          <h4>Результаты анализа:</h4>
+          <!-- Таблицы результатов -->
+          <div v-if="results.length > 0">
+            <div style="max-height: 300px; overflow-y: auto;">
+              <table class="table table-custom-border table-sm" style="position: relative;">
+                <thead class="table-light">
+                  <tr>
+                    <th>Номер</th>
+                    <th>Периметр</th>
+                    <th>Площадь</th>
+                    <th>Ширина</th>
+                    <th>Длина</th>
+                    <th>ДЭК</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="result in results" :key="result.number">
+                    <td>[[ result.contour_number ]]</td>
+                    <td>[[ result.perimeter.toFixed(2) ]]</td>
+                    <td>[[ result.area.toFixed(2) ]]</td>
+                    <td>[[ result.width.toFixed(2) ]]</td>
+                    <td>[[ result.length.toFixed(2) ]]</td>
+                    <td>[[ result.dek.toFixed(2) ]]</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <table class="table table-bordered table-sm mt-2">
+              <tbody>
+                <tr>
+                  <td>Средний периметр</td>
+                  <td>[[ averages.perimeter.toFixed(2) ]]</td>
+                </tr>
+                <tr>
+                  <td>Средняя площадь</td>
+                  <td>[[ averages.area.toFixed(2) ]]</td>
+                </tr>
+                <tr>
+                  <td>Средняя ширина</td>
+                  <td>[[ averages.width.toFixed(2) ]]</td>
+                </tr>
+                <tr>
+                  <td>Средняя длина</td>
+                  <td>[[ averages.length.toFixed(2) ]]</td>
+                </tr>
+                <tr>
+                  <td>Средний ДЭК</td>
+                  <td>[[ averages.dek.toFixed(2) ]]</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="results.length === 0" class="text-muted">Результаты пока отсутствуют.</p>
+          <button class="btn btn-primary mt-3" @click="saveResearch" :disabled="isSaveButtonDisabled">Сохранить</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+          <div class="modal-body text-center d-flex justify-content-center align-items-center">
+            <img v-if="currentFile && selectedFolder" :src="getImageUrl(currentFile.name, selectedFolder)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain; cursor: pointer;" @click="closeImageModal">
+            <span v-else class="text-muted">Нет изображения для отображения</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </analyze-block>
+</div>
+-----------------------
+
+
+-----------------------
+templates/calibration.html
+
+{% load static %} <div id="app_calibration">
+  <calibration-block>
+    <h1>Калибровка</h1>
+    <!-- Блок с кнопками "Новая" / "Загрузить" -->
+    <div v-if="!isCalibLoadVisible">
+      <div class="col-md-4 d-flex justify-content-between text-left mb-2">
+        <button class="btn flex-fill btn-primary me-1" @click="createNewCalibration"> Новая </button>
+        <button class="btn flex-fill btn-secondary ms-1" @click="toggleCalibLoadBlock"> Загрузить </button>
+      </div>
+      <!-- Основной блок: название, цена деления, микроскоп, коэффициент, кнопка "Сохранить" -->
+      <div class="border p-2 pb-0 mb-2">
+        <div class="row mb-2">
+          <!-- Название -->
+          <div class="col-md-6">
+            <label for="calib-name-input" class="form-label">Название:</label>
+            <input type="text" id="calib-name-input" v-model="calibName" class="form-control">
+          </div>
+          <!-- Цена деления -->
+          <div class="col-md-6">
+            <label for="calib-division-select" class="form-label">Цена деления:</label>
+            <select id="calib-division-select" v-model="calibSelectedDivisionPrice" class="form-select">
+              <option v-for="price in divisionPrices" :key="price.name" :value="price"> [[ price.name ]] </option>
+            </select>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <!-- Микроскоп -->
+          <div class="col-md-6">
+            <label for="calib-microscope-select" class="form-label">Выбор микроскопа:</label>
+            <select id="calib-microscope-select" v-model="calibSelectedMicroscope" class="form-select">
+              <option v-for="microscope in microscopes" :key="microscope.name" :value="microscope"> [[ microscope.name ]] </option>
+            </select>
+          </div>
+          <!-- Коэффициент -->
+          <div class="col-md-3">
+            <label for="coefficient-input" class="form-label text-primary ">
+              <i class="bi bi-calculator me-1"></i>K (коэффициент): </label>
+            <input type="number" step="0.0001" id="coefficient-input" v-model="calibCoefficient" class="form-control border-primary " placeholder="Будет рассчитан при калибровке">
+          </div>
+          <!-- Сохранить -->
+          <div class="col-md-3 d-flex align-items-end justify-content-end">
+            <button class="btn btn-success" @click="saveCalibration" :disabled="isSaveDisabled"> Сохранить </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Блок загрузки (таблица калибровок) -->
+    <div v-if="isCalibLoadVisible">
+      <div class="border p-3 mb-4">
+        <h4>Загрузка калибровки</h4>
+        <table class="table table-bordered table-sm">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Микроскоп</th>
+              <th>Коэффициент</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="calib in calibrations" :key="calib.id" @click="selectCalibration(calib)" :class="{'table-active': calib === selectedCalibrationRow}" style="cursor: pointer;">
+              <td>[[ calib.name ]]</td>
+              <td>[[ calib.microscope ]]</td>
+              <td>[[ calib.coefficient ]]</td>
+              <td>[[ formatDate(calib.date) ]]</td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- Кнопки управления -->
+        <div class="d-flex col-md-6 justify-content-end mt-3 ms-auto">
+          <button class="btn flex-fill btn-danger me-1" @click="deleteCalibration(selectedCalibrationRow)" :disabled="!selectedCalibrationRow"> Удалить </button>
+          <button class="btn flex-fill btn-primary me-1 ms-1" @click="loadCalibration(selectedCalibrationRow)" :disabled="!selectedCalibrationRow"> Загрузить </button>
+          <button class="btn flex-fill btn-secondary ms-1" @click="toggleCalibLoadBlock"> Отменить </button>
+        </div>
+      </div>
+    </div>
+    <!-- Превью -->
+    <div class="border p-3" v-if="!isCalibLoadVisible">
+      <div class="row">
+        <div class="col-md-4 d-flex flex-column align-items-center">
+          <h4 class="text-center">Превью изображения:</h4>
+          <!-- Переключатели (разные имена файлов) -->
+          <div class="col-md-12 d-flex justify-content-center mb-3">
+            <div class="btn-group" style="width: 350px;">
+              <button v-for="filename in calibFileStates" :key="filename" class="btn btn-outline-primary" :class="{ active: calibCurrentView === filename }" :disabled="!calibFileExistStates[filename]" @click="changeCalibFile(filename)"> [[ calibFileNames[filename] ]] </button>
+            </div>
+          </div>
+          <!-- Превью -->
+          <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3" style="width: 350px; height: 350px; background-color: #f8f9fa; border: 1px solid #dee2e6; cursor: pointer;" @click="openCalibImageModal">
+            <img v-if="isCalibCurrentFileAvailable" :src="getCalibImageUrl(calibCurrentView)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            <span v-else class="text-muted">Нет изображения</span>
+          </div>
+          <!-- Форма для выбора файла -->
+          <div class="mb-3" style="width: 400px;" v-if="isDefaultCalibrationMicroscope()">
+            <input type="file" id="calib-image-input" @change="handleCalibFileSelect" class="form-control">
+          </div>
+          <!-- Кнопки управления -->
+          <div class="d-flex mb-3" style="width: 400px;">
+            <!-- Кнопка управления калибровкой -->
+            <button class="btn btn-primary flex-fill" :disabled="!calibFileExistStates['sources.jpg'] || !calibSelectedDivisionPrice" @click="runCalibration"> Калибровка </button>
+          </div>
+        </div>
+      </div>
+    </div>
+     <div class="modal fade" id="calibImageModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+          <div class="modal-content">
+           <div class="modal-body d-flex justify-content-center align-items-center">
+  <img v-if="isCalibCurrentFileAvailable" :src="getCalibImageUrl(calibCurrentView)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain; cursor: pointer;" @click="closeCalibImageModal">
+  <span v-else class="text-muted">Нет изображения для отображения</span>
+</div>
+          </div>
+        </div>
+      </div>
+  </calibration-block>
+</div>
+-----------------------
+
+
+-----------------------
+templates/home.html
+
+{% extends "base/base.html" %}
+{% load static %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block content %}
+<div id="app" class="container mt-2"  data-microscopes="{{ microscopes }}" data-division-prices="{{ division_prices }}">
+    <!-- Меню вкладок -->
+    <ul class="nav nav-tabs">
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'analyze' }" @click="switchTab('analyze')">Анализ</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link"
+              :class="{ active: currentTab === 'results', disabled: !resultsAvailable }"
+              :aria-disabled="!resultsAvailable"
+              @click="resultsAvailable && switchTab('results')"
+              title="Вкладка появляется после анализа хотя бы одного файла">
+              Результаты
+          </a>
+        </li>
+
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'calibration' }" @click="switchTab('calibration')">Калибровка</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" :class="{ active: currentTab === 'settings' }" @click="switchTab('settings')">Настройки</a>
+        </li>
+    </ul>
+
+    <!-- Контейнер для вкладок -->
+    <div class="tab-content border p-3 pt-0" style="margin-top: -1px;">
+        <!-- Блок для анализа -->
+        <div id="analyze-tab" v-show="currentTab === 'analyze'">
+            {% include "analyze.html" %}
+        </div>
+
+        <!-- Блок для результатов -->
+        <div id="results-tab" v-show="currentTab === 'results'"><div class=" mt-4 alert alert-danger">Вкладка "Результаты" ещё не реализована.</div></div>
+
+        <!-- Блок для калибровки -->
+        <div id="calibration-tab" v-show="currentTab === 'calibration'">
+             {% include "calibration.html" %}
+        </div>
+
+        <!-- Блок для настроек -->
+        <div id="settings-tab" v-show="currentTab === 'settings'"><div class=" mt-4 alert alert-danger">Вкладка "Настройки" ещё не реализована.</div></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+
+<script src="{% static 'vue/analyze.vue.js' %}"></script>
+<script src="{% static 'vue/calibration.vue.js' %}"></script>
+<script src="{% static 'vue/home.vue.js' %}"></script>
+
+{% endblock %}
+
+-----------------------
+
+
+-----------------------
+templates/base/base.html
+
+{% load static %}
+
+
+<!doctype html>
+
+<html lang="ru">
+<head>
+     {% csrf_token %}
+    <meta charset="UTF-8">
+    <title>{% block title %}Оптический анализатор{% endblock %}</title>
+    <!-- Подключение Bootstrap CSS -->
+    <link rel="stylesheet" href="{% static 'bootstrap/css/bootstrap.min.css' %}">
+    <!-- Дополнительные стили -->
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+    {% block styles %}
+    {% endblock %}
+</head>
+<body>
+    <!-- Основной контент страницы -->
+    {% block content %}
+    {% endblock %}
+
+    <!-- Подключение Vue.js -->
+    <script src="{% static 'vue/vue.global.prod.js' %}"></script>
+    <!-- Подключение Bootstrap JS -->
+    <script src="{% static 'bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+    <!-- Дополнительные скрипты -->
+    {% block scripts %}
+    {% endblock %}
+</body>
+</html>
+
+-----------------------
+
+
+-----------------------
+static/vue/analyze.vue.js
+
+window.analyzeMixin = {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            name: '',
+            id: 0,
+            employee: '',
+            selectedMicroscope: null,
+            selectedCalibration: null,
+            calibrations: [], // Список доступных калибровок
+            files: [],
+            currentFile: null,
+            imageUrl: '',
+            lastUsedIndex: 0,
+            isLoadBlockVisible: false, // Переключатель видимости блока загрузки
+            researches: [], // Данные исследований
+
+            folders: ['sources', 'contrasted', 'contours', 'analyzed'],
+            selectedFolder: 'sources',
+            folderNames: {
+                sources: 'Исходные',
+                contrasted: 'Контраст',
+                contours: 'Контуры',
+                analyzed: 'Результат',
+            },
+        };
+    },
+    computed: {
+        availableCalibrations() {
+        if (!this.selectedMicroscope) {
+            return [];
+        }
+        return this.calibrations.filter(calibration =>
+            calibration.microscope === this.selectedMicroscope.name
+        );
+    },
+
+    // Доступность селектора калибровки
+    isCalibrationSelectDisabled() {
+        return !this.selectedMicroscope;
+    },
+
+    // Обновленное условие для кнопки "Анализировать"
+    isAnalyzeButtonDisabled() {
+        return this.files.length === 0 ||
+               !this.selectedCalibration ||
+               !this.selectedMicroscope;
+    },
+        isSaveButtonDisabled() {
+            return this.results.length === 0;
+        },
+        // Доступность переключателей
+        folderButtonStates() {
+            if (this.files.length === 0) {
+                return { sources: false, contrasted: false, contours: false, analyzed: false };
+            } else if (this.results.length === 0) {
+                return { sources: true, contrasted: false, contours: false, analyzed: false };
+            } else {
+                return { sources: true, contrasted: true, contours: true, analyzed: true };
+            }
+        },
+    },
+    watch: {
+    // Отслеживание изменения микроскопа
+    selectedMicroscope(newMicroscope, oldMicroscope) {
+        if (newMicroscope !== oldMicroscope) {
+            // Сбрасываем выбранную калибровку при смене микроскопа
+            this.selectedCalibration = null;
+
+        }
+    }
+},
+    methods: {
+        // Получить URL для изображения
+        getImageUrl(fileName, folder) {
+            const timestamp = new Date().getTime(); // Текущая метка времени
+            return `/media/research/in_work/${folder}/${fileName}?t=${timestamp}`;
+        },
+        async fetchCalibrations() {
+            try {
+                const response = await fetch('/api/calibrations/');
+                if (response.ok) {
+                    this.calibrations = await response.json();
+                } else {
+                    console.error('Ошибка загрузки калибровок.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровок:', error);
+            }
+        },
+        // Сменить папку для отображения
+        changeFolder(folder) {
+            if (this.folderButtonStates[folder]) {
+                this.selectedFolder = folder;
+                if (this.currentFile) {
+                    this.imageUrl = this.getImageUrl(this.currentFile.name, folder);
+                }
+            }
+        },
+         getCalibrationPlaceholder() {
+        if (!this.selectedMicroscope) {
+            return 'Сначала выберите микроскоп';
+        } else if (this.availableCalibrations.length === 0) {
+            return 'Нет калибровок для выбранного микроскопа';
+        } else {
+            return 'Выберите калибровку';
+        }
+    },
+        // Обработка выбора файлов
+        async handleFileSelect(event) {
+            const newFiles = Array.from(event.target.files);
+            const formData = new FormData();
+
+            newFiles.forEach(file => {
+                this.lastUsedIndex += 1;
+                const numberedName = `${this.lastUsedIndex}.jpg`;
+                formData.append('images[]', file, numberedName);
+            });
+
+            await this.uploadImages(formData);
+
+            // Устанавливаем первый файл, если его еще нет
+            if (!this.currentFile && this.files.length > 0) {
+                this.selectFile(this.files[0]);
+            }
+        },
+        // Установить выбранный файл
+        selectFile(file) {
+            this.currentFile = file;
+            this.imageUrl = this.getImageUrl(file.name, this.selectedFolder);
+        },
+        // Загрузка изображений на сервер
+        async uploadImages(formData) {
+            try {
+                // Добавляем контекст исследования
+                formData.append('context', 'research');
+
+                const response = await fetch('/upload_image/', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    data.files.forEach((fileName) => {
+                        this.files.push({
+                            file: null,
+                            name: fileName,
+                        });
+                    });
+
+                } else {
+                    console.error('Ошибка загрузки файлов.');
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке файлов:', error);
+            }
+        },
+        // Анализ всех файлов
+        async analyzeAllFiles() {
+            try {
+                const response = await fetch('/api/researches/execute/', { // Новый URL
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        calibration_id: this.selectedCalibration?.id || 0
+                    }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    this.results = data.results.contours;
+                    this.averages = data.results.averages;
+
+                    if (this.currentFile) {
+                        this.selectedFolder = 'analyzed';
+                        this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
+                    }
+                } else {
+                    console.error('Ошибка анализа.');
+                }
+            } catch (error) {
+                console.error('Ошибка анализа:', error);
+            }
+        },
+        // Удаление текущего файла
+        async deleteCurrentFile() {
+            if (!this.currentFile) {
+                console.error('Файл не выбран.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/delete_image/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_name: this.currentFile.name,
+                        context: 'research', // Указываем контекст исследования
+                    }),
+                });
+
+                if (response.ok) {
+                    const index = this.files.indexOf(this.currentFile);
+                    this.files.splice(index, 1);
+
+                    if (this.files.length > 0) {
+                        const nextIndex = Math.min(index, this.files.length - 1);
+                        this.selectFile(this.files[nextIndex]);
+                    } else {
+                        this.currentFile = null;
+                        this.imageUrl = '';
+                    }
+                } else {
+                    console.error('Ошибка удаления файла.');
+                }
+            } catch (error) {
+                console.error('Ошибка при удалении файла:', error);
+            }
+        },
+       isDefaultMicroscope() {
+            return this.selectedMicroscope?.type === 'DEFAULT';
+        },
+        isManualMicroscope() {
+            return this.selectedMicroscope?.type === 'MANUAL';
+        },
+        isAutomaticMicroscope() {
+            return this.selectedMicroscope?.type === 'AUTOMATIC';
+        },
+        createNewResearch() {
+            location.reload(); // Обновляет страницу
+        },
+        toggleLoadBlock() {
+            this.isLoadBlockVisible = !this.isLoadBlockVisible;
+            if (this.isLoadBlockVisible) {
+                this.fetchResearches();
+            }
+        },
+        selectResearch(research) {
+        // Устанавливаем текущую строку как выбранную
+        this.selectedResearch = research;
+    },
+        async deleteResearch(research) {
+            try {
+                const response = await fetch(`/api/researches/${research.id}/delete/`, {
+                    method: 'DELETE',
+                });
+                if (response.ok) {
+                    this.researches = this.researches.filter(r => r.id !== research.id);
+                    this.selectedResearch = null;
+                } else {
+                    console.error('Ошибка удаления исследования.');
+                }
+            } catch (error) {
+                console.error('Ошибка удаления исследования:', error);
+            }
+        },
+        async loadResearch(research) {
+        try {
+            const response = await fetch(`/api/researches/${research.id}/load/`);
+            if (response.ok) {
+                const data = await response.json();
+
+                console.log(data)
+
+                const research = data.research;
+
+                // Установка основных данных
+                this.id = research.id;
+                this.name = research.name;
+                this.employee = research.employee;
+                this.selectedMicroscope = this.microscopes.find(
+                    (microscope) => microscope.name === research.microscope
+                );
+               this.$nextTick(() => {
+                if (research.calibration) {
+                    this.selectedCalibration = this.availableCalibrations.find(
+                        (calibration) => calibration.id === research.calibration.id
+                    );
+                } else {
+                    this.selectedCalibration = null;
+                }
+            });
+
+                this.files = [];
+
+                data.files.forEach((fileName) => {
+                        this.files.push({
+                            file: null,
+                            name: fileName,
+                        });
+                    });
+
+                 // Устанавливаем первый файл, если его еще нет
+                if (!this.currentFile && this.files.length > 0) {
+                    this.selectFile(this.files[0]);
+
+                     if (this.currentFile) {
+                        this.selectedFolder = 'analyzed';
+                        this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
+                    }
+                }
+
+                // Установка контуров и средних значений
+                this.results = research.contours;
+                this.averages = {
+                    perimeter: research.average_perimeter,
+                    area: research.average_area,
+                    width: research.average_width,
+                    length: research.average_length,
+                    dek: research.average_dek,
+                };
+
+                // Установка калибровки
+                if (research.calibration) {
+                    this.selectedCalibration = {
+                        id: research.calibration.id,
+                        name: research.calibration.name,
+                        microscope: research.calibration.microscope,
+                        coefficient: research.calibration.coefficient,
+                    };
+                } else {
+                    this.selectedCalibration = null;
+                }
+
+                // Скрытие блока загрузки
+                this.toggleLoadBlock();
+
+                console.log('Данные исследования загружены:', data);
+            } else {
+                console.error('Ошибка загрузки исследования.');
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки исследования:', error);
+        }
+    },
+    async saveResearch() {
+        try {
+            const response = await fetch('/api/researches/save/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    id: this.id,
+                    name: this.name,
+                    employee: this.employee,
+                    microscope: this.selectedMicroscope?.name,
+                    calibration_id: this.selectedCalibration?.id || 0, // ID калибровки или 0
+                    average_perimeter: this.averages.perimeter,
+                    average_area: this.averages.area,
+                    average_width: this.averages.width,
+                    average_length: this.averages.length,
+                    average_dek: this.averages.dek,
+                    contours: this.results,
+                }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.id = data.id;
+                console.log('Сохранено исследование с ID:', data.id);
+            } else {
+                console.error('Ошибка сохранения исследования.');
+            }
+        } catch (error) {
+            console.error('Ошибка сохранения исследования:', error);
+        }
+    },
+    async fetchResearches() {
+        try {
+            const response = await fetch('/api/researches/');
+            if (response.ok) {
+                this.researches = await response.json();
+            } else {
+                console.error('Ошибка загрузки исследований.');
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки исследований:', error);
+        }
+    },
+
+        canShowCamera() {
+            return this.isManualMicroscope() || this.isAutomaticMicroscope();
+        },
+        openCamera() {
+            console.log("Камера открыта");
+        },
+        startMicroscope() {
+            console.log("Запуск микроскопа");
+        },
+        captureImage() {
+            console.log("Снимок сделан");
+        },
+        openImageModal() {
+        if (this.currentFile && this.selectedFolder) {
+            const modal = new bootstrap.Modal(document.getElementById('imageModal'));
+            modal.show();
+        }
+    },
+    closeImageModal() {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('imageModal'));
+        if (modal) {
+            modal.hide();
+        }
+    },
+        formatDate(dateString) {
+            if (!dateString) return '-';
+
+            const date = new Date(dateString);
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            };
+
+            return date.toLocaleDateString('ru-RU', options);
+        },
+    },
+
+
+    mounted() {
+        // Инициализация при загрузке страницы
+        this.lastUsedIndex = 0;
+
+        // Инициализация первого микроскопа
+        this.selectedMicroscope = null;
+        this.fetchCalibrations();
+        this.selectedCalibration = null;
+        console.log(this.selectedMicroscope);
+    },
+
+};
+
+-----------------------
+
+
+-----------------------
+static/vue/calibration.vue.js
+
+window.calibrationMixin = {
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            calibId: 0,
+            calibName: '',
+            calibCoefficient: '',
+            calibDivisionPrices: '',
+            calibSelectedMicroscope: null,
+            calibSelectedDivisionPrice: null,
+            calibFileStates: ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg'],
+            calibFileExistStates: { 'sources.jpg': false, 'contrasted.jpg': false, 'contours.jpg': false, 'calibrated.jpg': false },
+            calibFileNames: {
+                'sources.jpg': 'Исходный',
+                'contrasted.jpg': 'Контраст',
+                'contours.jpg': 'Контуры',
+                'calibrated.jpg': 'Результат',
+            },
+            calibCurrentView: 'sources.jpg', // Активный файл для превью
+            isCalibLoadVisible: false,
+            calibrations: [],
+
+            selectedCalibrationRow: null,
+        };
+    },
+    computed: {
+        // Проверяем, есть ли текущий файл для отображения
+        isCalibCurrentFileAvailable() {
+            return this.calibFileExistStates[this.calibCurrentView];
+        },
+        isSaveDisabled() {
+            const num = parseFloat(this.calibCoefficient);
+            return isNaN(num) || num <= 0;
+        },
+    },
+    methods: {
+        isDefaultCalibrationMicroscope() {
+            return this.calibSelectedMicroscope?.type === 'DEFAULT';
+        },
+        toggleCalibLoadBlock() {
+    this.isCalibLoadVisible = !this.isCalibLoadVisible;
+    if (this.isCalibLoadVisible) {
+        this.fetchCalibrations(); // Загружаем список при открытии
+    }
+},
+        getCalibImageUrl(file) {
+            const timestamp = new Date().getTime(); // Текущая метка времени
+            return `/media/calibration/in_work/${file}?t=${timestamp}`;
+        },
+        changeCalibFile(view) {
+            this.calibCurrentView = view;
+        },
+        async handleCalibFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('images[]', file, 'sources.jpg'); // Передаём файл с фиксированным именем
+            formData.append('context', 'calibration');
+
+            const response = await fetch('/upload_image/', { method: 'POST', body: formData });
+
+            if (response.ok) {
+                this.calibFileExistStates['sources.jpg'] = true; // Помечаем, что файл загружен
+                this.calibFileExistStates['contrasted.jpg'] = false;
+                this.calibFileExistStates['contours.jpg'] = false;
+                this.calibFileExistStates['calibrated.jpg'] = false;
+                this.calibCurrentView = 'sources.jpg'; // Активируем вкладку "Исходный"
+            } else {
+                console.error('Ошибка загрузки файла');
+            }
+        },
+        async runCalibration() {
+            const response = await fetch('/api/calibrations/execute/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}), // Отправляем пустой объект, если других данных нет
+            });
+            if (response.ok) {
+                const { coefficient } = await response.json();
+                this.calibCoefficient = parseFloat(coefficient).toFixed(3);
+                this.calibFileExistStates['contrasted.jpg'] = true;
+                this.calibFileExistStates['contours.jpg'] = true;
+                this.calibFileExistStates['calibrated.jpg'] = true;
+                this.calibCurrentView = 'calibrated.jpg';
+            } else {
+                console.error('Ошибка выполнения калибровки');
+            }
+        },
+        async saveCalibration() {
+            try {
+                const response = await fetch('/api/calibrations/save/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        id: this.calibId || 0, // Добавьте calibId в data()
+                        name: this.calibName,
+                        microscope: this.calibSelectedMicroscope?.name,
+                        coefficient: parseFloat(this.calibCoefficient),
+                        division_price: this.calibSelectedDivisionPrice?.name,
+                    }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    this.calibId = data.id;
+                    console.log('Сохранена калибровка с ID:', data.id);
+                } else {
+                    console.error('Ошибка сохранения калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения калибровки:', error);
+            }
+        },
+
+        async fetchCalibrations() {
+            try {
+                const response = await fetch('/api/calibrations/');
+                if (response.ok) {
+                    this.calibrations = await response.json();
+                } else {
+                    console.error('Ошибка загрузки калибровок.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровок:', error);
+            }
+        },
+
+        async loadCalibration(calibration) {
+            try {
+                const response = await fetch(`/api/calibrations/${calibration.id}/load/`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const calib = data.calibration;
+
+                    // Установка данных калибровки
+                    this.calibId = calib.id;
+                    this.calibName = calib.name;
+                    this.calibCoefficient = calib.coefficient;
+
+                    // Установка микроскопа
+                    this.calibSelectedMicroscope = this.microscopes.find(
+                        (microscope) => microscope.name === calib.microscope
+                    );
+
+                    // Установка цены деления
+                    this.calibSelectedDivisionPrice = this.divisionPrices.find(
+                        (price) => price.name === calib.division_price
+                    );
+
+                    // Установка состояний файлов
+                    if (data.existing_files) {
+                        this.calibFileExistStates = {
+                            'sources.jpg': false,
+                            'contrasted.jpg': false,
+                            'contours.jpg': false,
+                            'calibrated.jpg': false
+                        };
+
+                        data.existing_files.forEach(fileName => {
+                            this.calibFileExistStates[fileName] = true;
+                        });
+
+                        // Установка активного вида
+                        if (data.existing_files.includes('calibrated.jpg')) {
+                            this.calibCurrentView = 'calibrated.jpg';
+                        } else if (data.existing_files.includes('sources.jpg')) {
+                            this.calibCurrentView = 'sources.jpg';
+                        }
+                    }
+
+                    // Скрытие блока загрузки
+                    this.toggleCalibLoadBlock();
+
+                    console.log('Данные калибровки загружены:', data);
+                } else {
+                    console.error('Ошибка загрузки калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки калибровки:', error);
+            }
+        },
+
+        selectCalibration(calibration) {
+            this.selectedCalibrationRow = calibration;
+        },
+
+        async deleteCalibration(calibration) {
+            if (!calibration) return;
+
+            try {
+                const response = await fetch(`/api/calibrations/${calibration.id}/delete/`, {
+                    method: 'DELETE',
+                });
+                if (response.ok) {
+                    this.calibrations = this.calibrations.filter(c => c.id !== calibration.id);
+                    this.selectedCalibrationRow = null;
+                } else {
+                    console.error('Ошибка удаления калибровки.');
+                }
+            } catch (error) {
+                console.error('Ошибка удаления калибровки:', error);
+            }
+        },
+
+        createNewCalibration() {
+            // Очистка всех полей
+            this.calibId = 0;
+            this.calibName = '';
+            this.calibCoefficient = '';
+            this.calibSelectedMicroscope = null;
+            this.calibSelectedDivisionPrice = null;
+
+            // Сброс состояний файлов
+            this.calibFileExistStates = {
+                'sources.jpg': false,
+                'contrasted.jpg': false,
+                'contours.jpg': false,
+                'calibrated.jpg': false
+            };
+            this.calibCurrentView = 'sources.jpg';
+
+            // Скрытие блока загрузки если он открыт
+            if (this.isCalibLoadVisible) {
+                this.toggleCalibLoadBlock();
+            }
+        },
+        openCalibImageModal() {
+            if (this.isCalibCurrentFileAvailable) {
+                console.log("tyt")
+                const modal = new bootstrap.Modal(document.getElementById('calibImageModal'));
+                modal.show();
+            }
+        },
+        closeCalibImageModal() {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('calibImageModal'));
+            if (modal) {
+                modal.hide();
+            }
+        },
+        formatDate(dateString) {
+            if (!dateString) return '-';
+
+            const date = new Date(dateString);
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            };
+
+            return date.toLocaleDateString('ru-RU', options);
+        },
+    },
+};
+
+-----------------------
+
+
+-----------------------
+static/vue/home.vue.js
+
+const app = Vue.createApp({
+    delimiters: ['[[', ']]'],
+    data() {
+        return {
+            currentTab: 'analyze', // Вкладка по умолчанию
+            microscopes: null, // Передача данных из context_processors
+            divisionPrices: null, // Передача данных из context_processors
+            results: [],
+            averages: {},
+            selectedResearch: null, // Выбранное исследование
+        };
+    },
+    computed: {
+        resultsAvailable() {
+            const hasResults = Array.isArray(this.results) && this.results.length > 0;
+            const avg = this.averages || {};
+            const hasAverages = ['perimeter','area','width','length','dek']
+                .every(k => typeof avg[k] === 'number' && !isNaN(avg[k]));
+            return hasResults && hasAverages;
+        }
+    },
+    methods: {
+        switchTab(tab) {
+            if (tab === 'results' && !this.resultsAvailable) return;
+            this.currentTab = tab;
+        },
+    },
+    mounted() {
+        const microscopesData = document.getElementById('app').getAttribute('data-microscopes');
+        this.microscopes = JSON.parse(microscopesData);
+
+        const selectedFields1 = this.microscopes.map(microscope => ({
+            name: microscope.name,
+            localizedType: microscope.type_localized
+        }));
+        console.log(selectedFields1);
+
+        const divisionPricesData = document.getElementById('app').getAttribute('data-division-prices');
+        this.divisionPrices = JSON.parse(divisionPricesData);
+
+        // Выборка нескольких полей
+         const selectedFields2 = this.divisionPrices.map(division_price => ({
+        name: division_price.name,
+        localizedType: division_price.value
+    }));
+    console.log(selectedFields2);
+    },
+});
+
+app.mixin(window.analyzeMixin);
+app.mixin(window.calibrationMixin);
+app.mount('#app');
+
+-----------------------
+
+
+-----------------------
+admin.py
+
+from django.contrib import admin
+
+# Register your models here.
+
+-----------------------
+
+
+-----------------------
+apps.py
+
+from django.apps import AppConfig
+
+
+class AnalyzerConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'analyzer'
+
+-----------------------
+
+
+-----------------------
+context_processors.py
+
+import json
+from .models import MICROSCOPES, DIVISION_PRICES
+
+def microscopes(request):
+    microscopes_serialized = json.dumps([microscope.to_dict() for microscope in MICROSCOPES])
+    return {'microscopes': microscopes_serialized}
+
+def division_prices(request):
+    division_prices_serialized = json.dumps([division_price.to_dict() for division_price in DIVISION_PRICES])
+    return {'division_prices': division_prices_serialized}
+
+-----------------------
+
+
+-----------------------
+forms.py
+
+# analyzer/forms.py
+from django import forms
+
+class ImageUploadForm(forms.Form):
+    image = forms.ImageField()
+
+-----------------------
+
+
+-----------------------
+models.py
+
+from django.db import models
+from enum import Enum
+
+
+class Calibration(models.Model):
+    """
+    Модель для описания калибровки
+    """
+    id = models.AutoField(primary_key=True)  # Уникальный идентификатор калибровки
+    name = models.CharField(max_length=255)  # Название калибровки
+    microscope = models.CharField(max_length=255)  # Название микроскопа
+    coefficient = models.FloatField()  # Коэффициент калибровки
+    division_price = models.CharField(max_length=50)  # Цена деления (например, "1 мкм")
+    date = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.microscope})"
+
+
+
+class Research(models.Model):
+    """
+    Модель для описания исследования
+    """
+    id = models.AutoField(primary_key=True)  # Уникальный идентификатор исследования
+    name = models.TextField()  # Название исследования
+    date = models.DateTimeField(auto_now_add=True)  # Дата создания
+    employee = models.CharField(max_length=255)  # Кто выполнил исследование
+    microscope = models.CharField(max_length=255)  # Название микроскопа
+    calibration = models.ForeignKey(Calibration, on_delete=models.SET_NULL, null=True, blank=True)  # Калибровка
+
+    # Средние характеристики
+    average_perimeter = models.FloatField()  # Средний периметр
+    average_area = models.FloatField()  # Средняя площадь
+    average_width = models.FloatField()  # Средняя ширина
+    average_length = models.FloatField()  # Средняя длина
+    average_dek = models.FloatField()  # Средний диаметр эквивалент круга
+
+    def __str__(self):
+        return f"Research {self.id}: {self.name[:50]}"
+
+
+
+class ContourData(models.Model):
+    """
+    Модель для данных по каждому найденному контуру
+    """
+    research = models.ForeignKey(Research, on_delete=models.CASCADE, related_name='contours')
+    contour_number = models.PositiveIntegerField()  # Номер контура
+    perimeter = models.FloatField()  # Периметр
+    area = models.FloatField()  # Площадь
+    width = models.FloatField()  # Ширина
+    length = models.FloatField()  # Длина
+    dek = models.FloatField()  # Диаметр эквивалент круга
+
+    def __str__(self):
+        return f"Contour {self.contour_number} in Research {self.research.id}"
+
+
+class MicroscopeType(Enum):
+    DEFAULT = "По умолчанию"
+    MANUAL = "Ручной"
+    AUTOMATIC = "Автоматический"
+
+
+class Microscope:
+    def __init__(self, name, microscope_type):
+        self.name = name
+        self.type = microscope_type
+
+    def __str__(self):
+        return f"{self.name} ({self.type.value})"
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "type": self.type.name,        # Оригинальное значение (DEFAULT, MANUAL, AUTOMATIC)
+            "type_localized": self.type.value,  # Локализованное значение ("По умолчанию", "Ручной", "Автоматический")
+        }
+
+
+MICROSCOPES = [
+    Microscope("По умолчанию", MicroscopeType.DEFAULT),
+    Microscope("М001", MicroscopeType.MANUAL),
+    Microscope("М002", MicroscopeType.AUTOMATIC),
+]
+
+class DivisionPrice:
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+    def __str__(self):
+        return f"{self.name} ({self.value})"
+
+    def to_dict(self):
+        return {
+            "name": self.name,  # Название, например, "1 мкм"
+            "value": self.value,  # Значение, например, 1 или 10
+        }
+
+
+# Статичный список для описания Цены деления
+DIVISION_PRICES = [
+    DivisionPrice("1 мкм", 1),
+    DivisionPrice("10 мкм", 10),
+]
+
+-----------------------
+
+
+-----------------------
+urls.py
+
+from django.urls import path, get_resolver
+from . import views
+
+from django.urls import path
+from .views import home, upload_image, delete_image, research_list, get_research, load_research, delete_research, save_research, execute_research, calibration_list, \
+    get_calibration, load_calibration, delete_calibration, save_calibration, execute_calibration
+
+urlpatterns = [
+    # Главная страница
+    path('', home, name='home'),
+
+    # Работа с изображениями
+    path('upload_image/', upload_image, name='upload_image'),
+    path('delete_image/', delete_image, name='delete_image'),
+
+    # Работа с исследованиями
+    path('api/researches/', research_list, name='research_list'),
+    path('api/researches/<int:pk>/', get_research, name='get_research'),
+    path('api/researches/<int:pk>/load/', load_research, name='load_research'),
+    path('api/researches/<int:pk>/delete/', delete_research, name='delete_research'),
+    path('api/researches/save/', save_research, name='save_research'),
+    path('api/researches/execute/', execute_research, name='research_execute'),  # Переименованный маршрут
+
+    # Работа с калибровкой
+    path('api/calibrations/', calibration_list, name='calibration_list'),
+    path('api/calibrations/<int:pk>/', get_calibration, name='get_calibration'),
+    path('api/calibrations/<int:pk>/load/', load_calibration, name='load_calibration'),
+    path('api/calibrations/<int:pk>/delete/', delete_calibration, name='delete_calibration'),
+    path('api/calibrations/save/', save_calibration, name='save_calibration'),
+    path('api/calibrations/execute/', execute_calibration, name='calibration_execute'),
+]
+
+
+-----------------------
+
+
+-----------------------
+views.py
+
+import os
+import cv2
+import json
+from django.http import JsonResponse, HttpResponse
+from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+import shutil
+import math
+import numpy as np
+from django.db import transaction
+from django.views.decorators.http import require_http_methods
+from .models import Research, ContourData, Calibration
+
+# Пути для рабочих директорий
+research_dir = os.path.join(settings.MEDIA_ROOT, 'research')
+calibration_dir = os.path.join(settings.MEDIA_ROOT, 'calibration')
+research_in_work_dir = os.path.join(research_dir, 'in_work')
+calibration_in_work_dir = os.path.join(calibration_dir, 'in_work')
+
+
+def get_files_in_directory(directory):
+    if os.path.exists(directory):
+        return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    return []
+
+# Методы для калибровки
+def clear_calibration_in_work():
+    """
+    Полностью удаляет папку calibration/in_work и создаёт её заново.
+    """
+    if os.path.exists(calibration_in_work_dir):
+        shutil.rmtree(calibration_in_work_dir)
+    os.makedirs(calibration_in_work_dir, exist_ok=True)
+
+
+
+@require_http_methods(["GET"])
+def calibration_list(request):
+    """
+    Возвращает список всех калибровок.
+    """
+    calibrations = Calibration.objects.all().values('id', 'name', 'microscope', 'coefficient', 'division_price', 'date')
+    return JsonResponse(list(calibrations), safe=False)
+
+
+@require_http_methods(["GET"])
+def get_calibration(request, pk):
+    """
+    Возвращает данные калибровки по ID.
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+        calibration_data = {
+            'id': calibration.id,
+            'name': calibration.name,
+            'microscope': calibration.microscope,
+            'coefficient': calibration.coefficient,
+            'division_price': calibration.division_price,
+            'date': calibration.date,
+        }
+        return JsonResponse(calibration_data)
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def save_calibration(request):
+    """
+    Сохранение калибровки + копирование files (если нужно).
+    """
+    try:
+        data = json.loads(request.body)
+
+        # Подготавливаем данные для сохранения
+        calibration_data = {
+            'name': data['name'],
+            'microscope': data['microscope'],
+            'coefficient': data['coefficient'],
+            'division_price': data['division_price'],
+        }
+
+        # Если id == 0, создаём новую калибровку
+        if data.get('id', 0) == 0:
+            calibration = Calibration.objects.create(**calibration_data)
+        else:
+            # Обновляем существующую или создаём, если объект не найден
+            calibration, _ = Calibration.objects.update_or_create(
+                id=data['id'],
+                defaults=calibration_data
+            )
+
+
+        # Теперь копируем 4 файла (если существуют) из in_work в calibration/<id>
+        dest_dir = os.path.join(calibration_dir, str(calibration.id))
+        os.makedirs(dest_dir, exist_ok=True)
+
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg']:
+            src_path = os.path.join(calibration_in_work_dir, fname)
+            dst_path = os.path.join(dest_dir, fname)
+            if os.path.exists(src_path):
+                shutil.copy2(src_path, dst_path)
+
+        return JsonResponse({'status': 'success', 'id': calibration.id})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def load_calibration(request, pk):
+    """
+    Загрузка калибровки (без под-папок: files = sources.jpg, contrasted.jpg, contours.jpg, calibrated.jpg)
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+        calibration_data = {
+            'id': calibration.id,
+            'name': calibration.name,
+            'microscope': calibration.microscope,
+            'coefficient': calibration.coefficient,
+            'division_price': calibration.division_price,
+            'date': calibration.date,
+        }
+        clear_calibration_in_work()
+
+        # Копируем потенциальные файлы: sources.jpg, contrasted.jpg, contours.jpg, calibrated.jpg
+        src_dir = os.path.join(calibration_dir, str(calibration.id))
+        dst_dir = calibration_in_work_dir
+        os.makedirs(dst_dir, exist_ok=True)
+
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg']:
+            src_path = os.path.join(src_dir, fname)
+            dst_path = os.path.join(dst_dir, fname)
+            if os.path.exists(src_path):
+                shutil.copy2(src_path, dst_path)
+
+        # Собираем инфу, какие файлы реально существуют
+        existing_files = []
+        for fname in ['sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg']:
+            if os.path.exists(os.path.join(dst_dir, fname)):
+                existing_files.append(fname)
+
+        return JsonResponse({
+            'status': 'success',
+            'calibration': calibration_data,
+            'existing_files': existing_files,  # Например: ["sources.jpg", "contours.jpg"]
+        })
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_calibration(request, pk):
+    """
+    Удаляет калибровку из БД и соответствующую папку (calibration/<id>).
+    """
+    try:
+        calibration = Calibration.objects.get(pk=pk)
+
+        # Удаляем папку calibration/<id>
+        folder_path = os.path.join(calibration_dir, str(calibration.id))
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+
+        # Удаляем запись из БД
+        calibration.delete()
+
+        return JsonResponse({'status': 'success'})
+    except Calibration.DoesNotExist:
+        return JsonResponse({'error': 'Calibration not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def execute_calibration(request):
+    """
+    1) Читаем sources.jpg
+    2) Контрастируем -> contrasted.jpg
+    3) Ищем вертикальные полосы на контрастной картинке (binary),
+       заливаем их красным -> contours.jpg,
+       но x-координату берём как minX по реальному контуру
+    4) Считаем среднее расстояние -> coefficient
+    5) Рисуем calibrated.jpg, где короткая красная линия
+       действительно совпадает с подсчитанным расстоянием
+    """
+    try:
+        source_path = os.path.join(calibration_in_work_dir, 'sources.jpg')
+        if not os.path.exists(source_path):
+            return JsonResponse({'error': 'sources.jpg not found'}, status=404)
+
+        # (1) Читаем исходник
+        src = cv2.imread(source_path, cv2.IMREAD_COLOR)
+        if src is None:
+            return JsonResponse({'error': 'Cannot read sources.jpg'}, status=500)
+
+        # (2) Повышаем контраст -> contrasted.jpg
+        contrasted = increase_contrast(src)
+        contrasted_path = os.path.join(calibration_in_work_dir, 'contrasted.jpg')
+        cv2.imwrite(contrasted_path, contrasted)
+
+        # (3) Бинаризуем и ищем вертикальные полосы -> contours.jpg
+        #     Для отрисовки красным будем использовать копию контрастной картинки.
+        binary = find_vertical_lines(contrasted)
+        contours_img = contrasted.copy()
+
+        # detect_black_strips_left_edges теперь ищет minX в контуре
+        xs = detect_black_strips_left_edges(binary, contours_img)
+        contours_path = os.path.join(calibration_in_work_dir, 'contours.jpg')
+        cv2.imwrite(contours_path, contours_img)
+
+        # Если не нашли хотя бы 2 полосы — 0.0
+        if len(xs) < 2:
+            calibrate_path = os.path.join(calibration_in_work_dir, 'calibrated.jpg')
+            cv2.imwrite(calibrate_path, contrasted)
+            return JsonResponse({'status': 'success', 'coefficient': 0.0})
+
+        # Считаем расстояния между соседними x
+        distances = [xs[i] - xs[i-1] for i in range(1, len(xs))]
+        avg_distance = sum(distances) / len(distances)
+
+        # (4) Рисуем финальное изображение (calibrated.jpg) на контрасте
+        final_img = contrasted.copy()
+        h, w = final_img.shape[:2]
+
+        # Синяя горизонтальная линия (между самой левой и самой правой полосой)
+        y_blue = int(h * 0.6)
+        cv2.line(final_img, (xs[0], y_blue), (xs[-1], y_blue), (255, 0, 0), 2)
+
+        # "Центральное" расстояние (для наглядности)
+        mid_index = len(distances) // 2
+        d_mid = distances[mid_index]
+        x_s = xs[mid_index]
+        x_e = xs[mid_index + 1]
+
+        y_red = int(h * 0.5)
+        cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
+
+        # Подписываем именно d_mid (или avg_distance, если хотите)
+        text_pos = ((x_s + x_e) // 2, y_red - 10)
+        text_val = f"{avg_distance:.3f}"
+        cv2.putText(final_img, text_val, text_pos, cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (255,255,255), 3)
+        cv2.putText(final_img, text_val, text_pos, cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0,0,0), 1)
+
+        calibrate_path = os.path.join(calibration_in_work_dir, 'calibrated.jpg')
+        cv2.imwrite(calibrate_path, final_img)
+
+        return JsonResponse({
+            'status': 'success',
+            'coefficient': round(avg_distance, 3)
+        })
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+def increase_contrast(src):
+    """
+    Простейший пример поднятия контраста через CLAHE
+    Возвращаем BGR картинку
+    """
+    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    c_gray = clahe.apply(gray)
+    return cv2.cvtColor(c_gray, cv2.COLOR_GRAY2BGR)
+
+
+def find_vertical_lines(img_bgr):
+    """
+    Возвращает бинарную маску, где изначально тёмные вертикальные полосы
+    становятся белыми (255).
+    Здесь пример на адаптивном пороге + инвертировании + морфологии.
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Адаптивный порог (инвертированный)
+    binary_inv = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        blockSize=31,  # Подбирайте
+        C=10
+    )
+    # Морфология, чтобы слегка склеить вертикальные полосы
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 7))
+    closed = cv2.morphologyEx(binary_inv, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+    return closed
+
+
+def detect_black_strips_left_edges(binary, draw_img):
+    """
+    Ищем контуры (белые полосы) на бинарной маске.
+    - Для каждого контура берём minX среди всех пикселей этого контура
+    - Закрашиваем контур красным
+    - Возвращаем список всех minX, отсортированный
+    """
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    xs = []
+    h, w = draw_img.shape[:2]
+
+    for cnt in contours:
+        pts = cnt.reshape(-1, 2)  # (N, 2) массив x,y
+        x_min = np.min(pts[:, 0])
+        y_min = np.min(pts[:, 1])
+        cw = np.max(pts[:, 0]) - x_min
+        ch = np.max(pts[:, 1]) - y_min
+
+        # Фильтрация «неадекватных» пятен
+        if cw > w*0.7:
+            # Слишком широкое
+            continue
+        if ch < 5:
+            # Слишком низкое
+            continue
+
+        # Можно добавить aspect_ratio, если хотите отсекать "слишком широкие"
+        aspect_ratio = ch / (cw+1)
+        if aspect_ratio < 6.0:
+           continue
+
+        # Заливка красным
+        cv2.drawContours(draw_img, [cnt], -1, (0, 0, 255), cv2.FILLED)
+
+        xs.append(x_min)
+
+    xs.sort()
+    return xs
+
+
+def clear_research_directory(path):
+    """
+    Очищает все папки внутри указанной директории.
+    Если директория не существует, она будет создана.
+    """
+    for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
+        folder_path = os.path.join(path, folder)
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
+
+
+def clear_research_directory_except_sources(path):
+    """
+    Очищает все папки внутри указанной директории, кроме sources.
+    Если директория не существует, она будет создана.
+    """
+    for folder in ['contrasted', 'contours', 'analyzed']:
+        folder_path = os.path.join(path, folder)
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
+
+def clear_research_in_work():
+    """Очищает все папки внутри research/in_work."""
+    clear_research_directory(research_in_work_dir)
+
+
+def clear_research_in_work_except_sources():
+    """Очищает все папки внутри research/in_work, кроме sources."""
+    clear_research_directory_except_sources(research_in_work_dir)
+
+def home(request):
+    # Очищаем research/in_work
+    clear_research_in_work()
+    clear_calibration_in_work()
+    return render(request, 'home.html')
+
+
+@require_http_methods(["GET"])
+def research_list(request):
+    """
+    Возвращает список исследований.
+    """
+    researches = Research.objects.all().values('id', 'name', 'employee', 'microscope', 'date')
+    return JsonResponse(list(researches), safe=False)
+
+
+@require_http_methods(["GET"])
+def get_research(request, pk):
+    """
+    Возвращает данные исследования.
+    """
+    try:
+        research = Research.objects.get(pk=pk)
+        contours = list(ContourData.objects.filter(research=research).values(
+            'contour_number', 'perimeter', 'area', 'width', 'length', 'dek'
+        ))
+        calibration = None
+        if research.calibration:
+            calibration = {
+                'id': research.calibration.id,
+                'name': research.calibration.name,
+                'microscope': research.calibration.microscope,
+                'coefficient': research.calibration.coefficient,
+            }
+        research_data = {
+            'id': research.id,
+            'name': research.name,
+            'employee': research.employee,
+            'microscope': research.microscope,
+            'date': research.date,
+            'average_perimeter': research.average_perimeter,
+            'average_area': research.average_area,
+            'average_width': research.average_width,
+            'average_length': research.average_length,
+            'average_dek': research.average_dek,
+            'calibration': calibration,
+            'contours': contours,
+        }
+        return JsonResponse(research_data)
+    except Research.DoesNotExist:
+        return JsonResponse({'error': 'Research not found'}, status=404)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def save_research(request):
+    """
+    Сохраняет исследование.
+    """
+    try:
+        data = json.loads(request.body)
+
+        # Подготовка общих данных для исследования
+        research_data = {
+            'name': data['name'],
+            'employee': data['employee'],
+            'microscope': data['microscope'],
+            'calibration_id': data.get('calibration_id', None),
+            'average_perimeter': data['average_perimeter'],
+            'average_area': data['average_area'],
+            'average_width': data['average_width'],
+            'average_length': data['average_length'],
+            'average_dek': data['average_dek'],
+        }
+
+        # Если id == 0, создаём новое исследование
+        if data.get('id', 0) == 0:
+            research = Research.objects.create(**research_data)
+        else:
+            # Обновляем существующее или создаём, если объект не найден
+            research, _ = Research.objects.update_or_create(
+                id=data['id'], defaults=research_data
+            )
+
+        # Работа с контурами
+        contours = data.get('contours', [])
+        with transaction.atomic():
+            ContourData.objects.filter(research=research).delete()
+            new_contours = [
+                ContourData(
+                    research=research,
+                    contour_number=contour['contour_number'],
+                    perimeter=contour['perimeter'],
+                    area=contour['area'],
+                    width=contour['width'],
+                    length=contour['length'],
+                    dek=contour['dek'],
+                )
+                for contour in contours
+            ]
+            ContourData.objects.bulk_create(new_contours)
+
+        # Обработка директорий
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+        clear_research_directory(cur_research_dir)
+        for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
+            src = os.path.join(research_in_work_dir, folder)
+            dst = os.path.join(cur_research_dir, folder)
+            if os.path.exists(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+
+        return JsonResponse({'status': 'success', 'id': research.id})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def load_research(request, pk):
+    """
+    Загружает исследование по указанному ID, включая контуры и калибровку.
+    Очищает research_in_work_dir и копирует данные из папки исследования.
+    """
+    try:
+        # Получение исследования
+        research = Research.objects.get(pk=pk)
+
+        # Очищаем research_in_work_dir
+        clear_research_in_work()
+
+        # Путь к папке исследования
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+
+        # Копируем папки из исследования в рабочую директорию
+        for folder in ['sources', 'contrasted', 'contours', 'analyzed']:
+            src = os.path.join(cur_research_dir, folder)
+            dst = os.path.join(research_in_work_dir, folder)
+            if os.path.exists(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+
+        # Формирование данных калибровки
+        calibration = None
+        if research.calibration:
+            calibration = {
+                'id': research.calibration.id,
+                'name': research.calibration.name,
+                'microscope': research.calibration.microscope,
+                'coefficient': research.calibration.coefficient,
+            }
+
+        # Формирование данных контуров
+        contours = list(ContourData.objects.filter(research=research).values(
+            'contour_number', 'perimeter', 'area', 'width', 'length', 'dek'
+        ))
+
+        # Формирование полного ответа
+        research_data = {
+            'id': research.id,
+            'name': research.name,
+            'employee': research.employee,
+            'microscope': research.microscope,
+            'date': research.date,
+            'average_perimeter': research.average_perimeter,
+            'average_area': research.average_area,
+            'average_width': research.average_width,
+            'average_length': research.average_length,
+            'average_dek': research.average_dek,
+            'calibration': calibration,  # Данные калибровки
+            'contours': contours,       # Данные контуров
+        }
+
+        files_in_sources = get_files_in_directory(os.path.join(research_in_work_dir, 'sources'))
+
+        return JsonResponse({'status': 'success', 'research': research_data, 'files':files_in_sources })
+    except Research.DoesNotExist:
+        return JsonResponse({'error': 'Research not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_research(request, pk):
+    """
+    Удаляет исследование.
+    """
+    try:
+        research = Research.objects.get(pk=pk)
+        cur_research_dir = os.path.join(research_dir, str(research.id))
+        if os.path.exists(cur_research_dir):
+            shutil.rmtree(cur_research_dir)
+        research.delete()
+        return JsonResponse({'status': 'success'})
+    except Research.DoesNotExist:
+        return JsonResponse({'error': 'Research not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def execute_research(request):
+    """
+    Выполняет обработку изображений (анализ) для исследований.
+    """
+    if request.method == 'POST':
+        try:
+            # Получаем данные калибровки из запроса
+            data = json.loads(request.body) if request.body else {}
+            calibration_id = data.get('calibration_id', 0)
+
+            # Получаем данные калибровки
+            calibration_coefficient = 1.0  # Значение по умолчанию
+            division_price_value = 1.0  # Значение по умолчанию
+
+            if calibration_id > 0:
+                try:
+                    calibration = Calibration.objects.get(id=calibration_id)
+                    calibration_coefficient = calibration.coefficient
+
+                    # Извлекаем числовое значение из строки division_price (например, "1 мкм" -> 1)
+                    division_price_str = calibration.division_price
+                    division_price_value = float(division_price_str.split()[0])
+                except Calibration.DoesNotExist:
+                    pass  # Используем значения по умолчанию
+
+            # Очищаем все, кроме sources
+            clear_research_in_work_except_sources()
+
+            source_dir = os.path.join(research_in_work_dir, 'sources')
+            contrasted_dir = os.path.join(research_in_work_dir, 'contrasted')
+            contours_dir = os.path.join(research_in_work_dir, 'contours')
+            analyzed_dir = os.path.join(research_in_work_dir, 'analyzed')
+
+            all_contours = []
+            averages = {'perimeter': 0, 'area': 0, 'length': 0, 'width': 0, 'dek': 0}
+            contour_number = 1  # Счётчик для сквозной нумерации
+
+            for file_name in os.listdir(source_dir):
+                source_path = os.path.join(source_dir, file_name)
+
+                # Читаем изображение
+                image = cv2.imread(source_path)
+
+                # Этап 1: Контраст
+                contrasted = increase_contrast(image)
+                cv2.imwrite(os.path.join(contrasted_dir, file_name), contrasted)
+
+                # Этап 2: Контуры
+                contoured = find_and_draw_contours(contrasted)
+                cv2.imwrite(os.path.join(contours_dir, file_name), contoured)
+
+                # Этап 3: Анализ (передаем данные калибровки)
+                analyzed_image, contours, contour_number = analyze_contours(
+                    contrasted, contour_number, calibration_coefficient, division_price_value
+                )
+                cv2.imwrite(os.path.join(analyzed_dir, file_name), analyzed_image)
+
+                # Сохраняем результаты анализа
+                all_contours.extend(contours)
+
+            # Вычисляем средние значения
+            if all_contours:
+                for key in averages.keys():
+                    averages[key] = sum(item[key] for item in all_contours) / len(all_contours)
+
+            return JsonResponse({'results': {'contours': all_contours, 'averages': averages}})
+
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'error': 'Метод не поддерживается'}, status=405)
+
+
+# Обработки
+def increase_contrast(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    contrasted = clahe.apply(gray)
+    blurred = cv2.GaussianBlur(contrasted, (5, 5), 0)
+    return cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
+
+
+def find_and_draw_contours(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    height, width = image.shape[:2]
+
+    # Проверяем, чтобы контур не пересекал границы изображения
+    def is_within_bounds(contour):
+        for point in contour:
+            x, y = point[0]
+            if x <= 0 or y <= 0 or x >= width - 1 or y >= height - 1:
+                return False
+        return True
+
+    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 100 and is_within_bounds(cnt)]
+    cv2.drawContours(image, filtered_contours, -1, (0, 0, 255), 2)
+    return image
+
+
+def analyze_contours(image, start_number=1, calibration_coefficient=1.0, division_price_value=1.0):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    results = []
+    height, width = image.shape[:2]
+
+    # Проверяем, чтобы контур не пересекал границы изображения
+    def is_within_bounds(contour):
+        for point in contour:
+            x, y = point[0]
+            if x <= 0 or y <= 0 or x >= width - 1 or y >= height - 1:
+                return False
+        return True
+
+    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > 100 and is_within_bounds(cnt)]
+
+    for cnt in filtered_contours:
+        M = cv2.moments(cnt)
+        if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+
+        # Периметр в пикселях
+        perimeter_pixels = cv2.arcLength(cnt, True)
+
+        # Площадь в пикселях
+        area_pixels = cv2.contourArea(cnt)
+
+        # Минимальный ограничивающий прямоугольник
+        rect = cv2.minAreaRect(cnt)
+        box = cv2.boxPoints(rect)
+
+        # Длина и ширина прямоугольника в пикселях
+        width_pixels = min(rect[1])
+        length_pixels = max(rect[1])
+
+        # Диаметр эквивалентного круга в пикселях
+        equivalent_diameter_pixels = math.sqrt((4 * area_pixels) / math.pi)
+
+        # Конвертируем в реальные единицы
+        perimeter_real = pixels_to_real_units(perimeter_pixels, calibration_coefficient, division_price_value)
+        area_real = pixels_to_real_units(area_pixels, calibration_coefficient**2, division_price_value**2)  # Площадь - квадрат единиц
+        length_real = pixels_to_real_units(length_pixels, calibration_coefficient, division_price_value)
+        width_real = pixels_to_real_units(width_pixels, calibration_coefficient, division_price_value)
+        dek_real = pixels_to_real_units(equivalent_diameter_pixels, calibration_coefficient, division_price_value)
+
+        # Добавляем результат с реальными единицами
+        results.append({
+            'contour_number': start_number,
+            'perimeter': round(perimeter_real, 2),
+            'area': round(area_real, 2),
+            'length': round(length_real, 2),
+            'width': round(width_real, 2),
+            'dek': round(dek_real, 2),
+            'cx': cx,  # Координаты для рисования остаются в пикселях
+            'cy': cy,  # Координаты для рисования остаются в пикселях
+        })
+
+        # Рисуем номер контура на изображении (координаты в пикселях)
+        cv2.putText(image, str(start_number), (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 6)
+        cv2.putText(image, str(start_number), (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        start_number += 1
+
+    return image, results, start_number
+
+
+@csrf_exempt
+def upload_image(request):
+    """
+    При контексте 'calibration' сохраняем файл под именем 'sources.jpg'
+    """
+    if request.method == 'POST' and 'images[]' in request.FILES:
+        context = request.POST.get('context', 'research')
+        images = request.FILES.getlist('images[]')
+
+        if context == 'calibration':
+            save_path = os.path.join(calibration_in_work_dir, 'sources.jpg')
+            os.makedirs(calibration_in_work_dir, exist_ok=True)  # Убедимся, что директория существует
+            with open(save_path, 'wb') as f:
+                for chunk in images[0].chunks():
+                    f.write(chunk)
+            return JsonResponse({'status': 'success'})
+
+        elif context == 'research':
+            # Выбираем рабочую директорию
+            in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+
+            images = request.FILES.getlist('images[]')
+            saved_files = []
+
+            for image in images:
+                # Формируем путь для сохранения
+                save_path = os.path.join(in_work_dir, 'sources', image.name)
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+                # Сохраняем файл
+                with open(save_path, 'wb') as f:
+                    for chunk in image.chunks():
+                        f.write(chunk)
+
+                saved_files.append(image.name)
+
+            return JsonResponse({'status': 'success', 'files': saved_files})
+        else:
+            return JsonResponse({'error': 'Invalid context'}, status=400)
+
+    return JsonResponse({'error': 'No images provided'}, status=400)
+
+@csrf_exempt
+def delete_image(request):
+    """
+    Удаляет изображения в зависимости от контекста (исследование или калибровка).
+    """
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        context = data.get('context', 'research')  # Контекст: research или calibration
+        file_name = data.get('file_name')
+
+        if not file_name or context not in ['research', 'calibration']:
+            return JsonResponse({'error': 'Неверные параметры'}, status=400)
+
+        # Выбираем рабочую директорию
+        in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+
+        folders = ['sources', 'contrasted', 'contours', 'analyzed']
+        for folder in folders:
+            file_path = os.path.join(in_work_dir, folder, file_name)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+        return JsonResponse({'status': 'success'})
+    else:
+        return JsonResponse({'error': 'Неподдерживаемый метод'}, status=405)
+
+
+@csrf_exempt
+def list_images(request):
+    """
+    Возвращает список изображений в зависимости от контекста (исследование или калибровка).
+    """
+    context = request.GET.get('context', 'research')  # Контекст: research или calibration
+    if context not in ['research', 'calibration']:
+        return JsonResponse({'error': 'Invalid context specified'}, status=400)
+
+    # Выбираем рабочую директорию
+    in_work_dir = research_in_work_dir if context == 'research' else calibration_in_work_dir
+    sources_dir = os.path.join(in_work_dir, 'sources')
+
+    if not os.path.exists(sources_dir):
+        return JsonResponse({'files': []})
+
+    files = os.listdir(sources_dir)
+    files_data = [{'index': i + 1, 'name': f} for i, f in enumerate(files)]
+    return JsonResponse({'files': files_data})
+
+
+def pixels_to_real_units(pixel_value, calibration_coefficient, division_price_value):
+    """
+    Конвертирует значение в пикселях в реальные единицы.
+
+    Args:
+        pixel_value (float): Значение в пикселях
+        calibration_coefficient (float): Коэффициент калибровки (пикселей на единицу деления)
+        division_price_value (float): Цена деления в микрометрах
+
+    Returns:
+        float: Значение в микрометрах
+    """
+    if calibration_coefficient == 0:
+        return pixel_value  # Возвращаем исходное значение если калибровка не проведена
+
+    # Переводим пиксели в единицы деления, затем в микрометры
+    real_value = (pixel_value / calibration_coefficient) * division_price_value
+    return real_value
+
+
+
+
+
+
+
+
+-----------------------
+

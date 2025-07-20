@@ -1,0 +1,68 @@
+{% load static %}
+<div id="app_results">
+  <results-block>
+    <h1>Результат: <span class="fw-normal">[[ selectedResearch?.name || '-' ]]</span></h1>
+
+    <!-- Информационный блок -->
+    <div class="border px-3 py-3 mt-4 mb-3 bg-light">
+      <div class="row gy-2 align-items-end">
+        <div class="col-md-3">
+          <div class="small text-muted">Сотрудник</div>
+          <div class="fw-semibold fs-5">[[ selectedResearch?.employee || '-' ]]</div>
+        </div>
+        <div class="col-md-3">
+          <div class="small text-muted">Микроскоп</div>
+          <div class="fs-5">[[ selectedResearch?.microscope || '-' ]]</div>
+        </div>
+        <div class="col-md-3">
+          <div class="small text-muted">Калибровка</div>
+          <div class="fs-5">
+            [[ selectedResearch?.calibration ? selectedResearch.calibration.name + ' (k=' + Number(selectedResearch.calibration.coefficient).toFixed(3) + ')' : '-' ]]
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="small text-muted">Дата</div>
+          <div class="fs-5">[[ formatDate(selectedResearch?.date) ]]</div>
+        </div>
+      </div>
+    </div>
+
+    <h4 class="mt-4 mb-3">Распределение параметров</h4>
+    <div id="results_parameters">
+  <div
+    v-for="(param, idx) in params"
+    :key="param.key"
+    class="border mb-3 bg-white"
+  >
+    <div
+      class="d-flex justify-content-between align-items-center px-3 py-2 user-select-none"
+      role="button"
+      tabindex="0"
+      @click="toggle(param.key)"
+      @keydown.space.enter.prevent="toggle(param.key)"
+      @keydown.enter.prevent="toggle(param.key)"
+      style="cursor:pointer;"
+    >
+      <div class="fw-semibold" style="font-size: 1.13rem;">[[ param.label ]]</div>
+      <span style="font-size:1.5rem;transition:.2s;">
+        <!-- Юникод-стрелка: вниз (▼) или вверх (▲) -->
+        [[ visible[param.key] ? '▲' : '▼' ]]
+      </span>
+    </div>
+    <transition name="fade">
+      <div v-show="visible[param.key]" class="px-3 pb-2">
+        <div class="small mb-2 text-muted mt-1">
+          Среднее: <b>[[ averages[param.key]?.toFixed(2) ]]</b>
+        </div>
+        <canvas
+          :id="'hist-' + param.key"
+          class="w-100"
+          style="min-height:200px;max-height:300px"
+        ></canvas>
+      </div>
+    </transition>
+  </div>
+</div>
+
+  </results-block>
+</div>

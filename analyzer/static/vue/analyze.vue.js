@@ -6,7 +6,6 @@ window.analyzeMixin = {
             id: 0,
             employee: '',
             selectedMicroscope: null,
-            selectedCalibration: null,
             calibrations: [], // Список доступных калибровок
             files: [],
             currentFile: null,
@@ -43,7 +42,7 @@ window.analyzeMixin = {
     // Обновленное условие для кнопки "Анализировать"
     isAnalyzeButtonDisabled() {
         return this.files.length === 0 ||
-               !this.selectedCalibration ||
+               !this.analyzeSelectedCalibration ||
                !this.selectedMicroscope;
     },
         isSaveButtonDisabled() {
@@ -65,7 +64,7 @@ window.analyzeMixin = {
     selectedMicroscope(newMicroscope, oldMicroscope) {
         if (newMicroscope !== oldMicroscope) {
             // Сбрасываем выбранную калибровку при смене микроскопа
-            this.selectedCalibration = null;
+            this.analyzeSelectedCalibration = null;
 
         }
     }
@@ -76,6 +75,10 @@ window.analyzeMixin = {
             const timestamp = new Date().getTime(); // Текущая метка времени
             return `/media/research/in_work/${folder}/${fileName}?t=${timestamp}`;
         },
+         handleResearchDblClick(research) {
+            // Здесь всё, что надо для загрузки: можно emit, либо напрямую
+            this.loadResearch(research);
+          },
         async fetchCalibrations() {
             try {
                 const response = await fetch('/api/calibrations/');
@@ -164,7 +167,7 @@ window.analyzeMixin = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        calibration_id: this.selectedCalibration?.id || 0
+                        calibration_id: this.analyzeSelectedCalibration?.id || 0
                     }),
                 });
 
@@ -275,13 +278,13 @@ window.analyzeMixin = {
                 );
                this.$nextTick(() => {
                 if (research.calibration) {
-                    this.selectedCalibration = this.availableCalibrations.find(
+                    this.analyzeSelectedCalibration = this.availableCalibrations.find(
                         (calibration) => calibration.id === research.calibration.id
                     );
                 } else {
-                    this.selectedCalibration = null;
+                    this.analyzeSelectedCalibration = null;
                 }
-                this.selectResearch.calibration = research.calibration;
+
             });
 
                 this.files = [];
@@ -315,15 +318,17 @@ window.analyzeMixin = {
 
                 // Установка калибровки
                 if (research.calibration) {
-                    this.selectedCalibration = {
+                    this.analyzeSelectedCalibration = {
                         id: research.calibration.id,
                         name: research.calibration.name,
                         microscope: research.calibration.microscope,
                         coefficient: research.calibration.coefficient,
                     };
                 } else {
-                    this.selectedCalibration = null;
+                    this.analyzeSelectedCalibration = null;
                 }
+
+                console.log(this.selectedResearch)
 
                 // Скрытие блока загрузки
                 this.toggleLoadBlock();
@@ -348,7 +353,7 @@ window.analyzeMixin = {
                     name: this.name,
                     employee: this.employee,
                     microscope: this.selectedMicroscope?.name,
-                    calibration_id: this.selectedCalibration?.id || 0, // ID калибровки или 0
+                    calibration_id: this.analyzeSelectedCalibration?.id || 0, // ID калибровки или 0
                     average_perimeter: this.averages.perimeter,
                     average_area: this.averages.area,
                     average_width: this.averages.width,
@@ -431,7 +436,7 @@ window.analyzeMixin = {
         // Инициализация первого микроскопа
         this.selectedMicroscope = null;
         this.fetchCalibrations();
-        this.selectedCalibration = null;
+        this.analyzeSelectedCalibration = null;
         console.log(this.selectedMicroscope);
     },
 

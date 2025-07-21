@@ -38,11 +38,15 @@ window.calibrationMixin = {
             return this.calibSelectedMicroscope?.type === 'DEFAULT';
         },
         toggleCalibLoadBlock() {
-    this.isCalibLoadVisible = !this.isCalibLoadVisible;
-    if (this.isCalibLoadVisible) {
-        this.fetchCalibrations(); // Загружаем список при открытии
-    }
-},
+            this.isCalibLoadVisible = !this.isCalibLoadVisible;
+            if (this.isCalibLoadVisible) {
+                this.fetchCalibrations(); // Загружаем список при открытии
+            }
+        },
+         handleCalibrationDblClick(calib) {
+            // Здесь всё, что надо для загрузки: можно emit, либо напрямую
+            this.loadCalibration(calib);
+          },
         getCalibImageUrl(file) {
             const timestamp = new Date().getTime(); // Текущая метка времени
             return `/media/calibration/in_work/${file}?t=${timestamp}`;

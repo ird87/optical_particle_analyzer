@@ -58,7 +58,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="calib in calibrations" :key="calib.id" @click="selectCalibration(calib)" :class="{'table-active': calib === selectedCalibrationRow}" style="cursor: pointer;">
+            <tr v-for="calib in calibrations" @dblclick="handleCalibrationDblClick(calib)" :key="calib.id" @click="selectCalibration(calib)" :class="{'table-active': calib ===
+            selectedCalibrationRow}"
+                style="cursor: pointer;">
               <td>[[ calib.name ]]</td>
               <td>[[ calib.microscope ]]</td>
               <td>[[ calib.coefficient ]]</td>

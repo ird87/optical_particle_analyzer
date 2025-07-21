@@ -8,6 +8,7 @@ const app = Vue.createApp({
             results: [],
             averages: {},
             selectedResearch: null, // Выбранное исследование
+            analyzeSelectedCalibration: null,
         };
     },
     computed: {

@@ -26,60 +26,61 @@
         </div>
       </div>
     </div>
-<div
-  id="results_parameters" class="p-3 pt-0"
-  style="max-height: 680px; overflow-y: auto; border: 1px solid #dee2e6; background: #fff;"
->
-    <h4 class="mt-4 mb-3 d-flex align-items-center" style="justify-content: space-between;">
-      <span>Распределение параметров</span>
-      <span
-        class="mx-2"
-        @click="toggleAll"
-        style="font-size:1.6rem;line-height:1;padding: 0.2rem 0.6rem 0.1rem 0.6rem;cursor:pointer;"
-        :aria-label="toggleAllVisible ? 'Свернуть все' : 'Развернуть все'"
-        tabindex="0"
-      >
 
-        [[toggleAllVisible ? '▲' : '▼' ]]
-      </span>
-    </h4>
-        <div id="results_parameters">
-      <div
-        v-for="(param, idx) in params"
-        :key="param.key"
-        class="border mb-3 bg-white"
-      >
+    <div
+      id="results_parameters" class="p-3 pt-0"
+      style="max-height: 680px; overflow-y: auto; border: 1px solid #dee2e6; background: #fff;"
+    >
+      <h4 class="mt-4 mb-3 d-flex align-items-center" style="justify-content: space-between;">
+        <span>Распределение параметров</span>
+        <span
+          class="mx-2"
+          @click="toggleAll"
+          style="font-size:1.6rem;line-height:1;padding: 0.2rem 0.6rem 0.1rem 0.6rem;cursor:pointer;"
+          :aria-label="toggleAllVisible ? 'Свернуть все' : 'Развернуть все'"
+          tabindex="0"
+        >
+          [[toggleAllVisible ? '▲' : '▼' ]]
+        </span>
+      </h4>
+
+      <div id="results_parameters">
         <div
-  class="d-flex justify-content-between align-items-center px-3 py-2 user-select-none"
-  role="button"
-  tabindex="0"
-  @click="toggle(param.key)"
-  @keydown.space.enter.prevent="toggle(param.key)"
-  @keydown.enter.prevent="toggle(param.key)"
-  style="cursor:pointer;"
->
-  <span class="fw-semibold" style="font-size: 1.13rem;">
-    [[ param.label ]]
-    <span class="small text-muted ms-3">
-      Среднее: <b>[[ averages[param.key]?.toFixed(2) ]]</b>
-    </span>
-  </span>
-  <span style="font-size:1.5rem;transition:.2s;">
-    [[ visible[param.key] ? '▲' : '▼' ]]
-  </span>
-</div>
-
-        <transition name="fade">
-          <div v-show="visible[param.key]" class="px-3 pb-2">
-            <canvas
-              :id="'hist-' + param.key"
-              class="w-100"
-              style="min-height:200px;max-height:280px"
-            ></canvas>
+          v-for="(param, idx) in params"
+          :key="param.key"
+          class="border mb-3 bg-white"
+        >
+          <div
+            class="d-flex justify-content-between align-items-center px-3 py-2 user-select-none"
+            role="button"
+            tabindex="0"
+            @click="toggle(param.key)"
+            @keydown.space.enter.prevent="toggle(param.key)"
+            @keydown.enter.prevent="toggle(param.key)"
+            style="cursor:pointer;"
+          >
+            <span class="fw-semibold" style="font-size: 1.13rem;">
+              [[ param.label ]]
+              <span class="small text-muted ms-3">
+                Среднее: <b>[[ averages[param.key]?.toFixed(2) ]]</b>
+              </span>
+            </span>
+            <span style="font-size:1.5rem;transition:.2s;">
+              [[ visible[param.key] ? '▲' : '▼' ]]
+            </span>
           </div>
-        </transition>
+
+          <transition name="fade">
+            <div v-show="visible[param.key]" class="px-3 pb-2">
+              <canvas
+                :id="'hist-' + param.key"
+                class="w-100"
+                style="min-height:200px;max-height:280px"
+              ></canvas>
+            </div>
+          </transition>
+        </div>
       </div>
-    </div>
     </div>
   </results-block>
 </div>

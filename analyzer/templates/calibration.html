@@ -88,7 +88,7 @@
             </div>
           </div>
           <!-- Превью -->
-          <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3" style="width: 350px; height: 350px; background-color: #f8f9fa; border: 1px solid #dee2e6; cursor: pointer;" @click="openCalibImageModal">
+          <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3" style="width: 350px; height: 300px; background-color: #f8f9fa; border: 1px solid #dee2e6; cursor: pointer;" @click="openCalibImageModal">
             <img v-if="isCalibCurrentFileAvailable" :src="getCalibImageUrl(calibCurrentView)" alt="Превью изображения" style="max-width: 100%; max-height: 100%; object-fit: contain;">
             <span v-else class="text-muted">Нет изображения</span>
           </div>

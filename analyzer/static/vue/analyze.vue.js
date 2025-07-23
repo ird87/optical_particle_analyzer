@@ -176,6 +176,15 @@ window.analyzeMixin = {
                     this.results = data.results.contours;
                     this.averages = data.results.averages;
 
+                    this.selectedResearch = {
+                         id: 0,
+                         name: this.name,
+                         employee: this.employee,
+                         microscope: this.selectedMicroscope?.name,
+                         calibration_id: this.analyzeSelectedCalibration?.id || 0,
+                         date: new Date()
+                    };
+
                     if (this.currentFile) {
                         this.selectedFolder = 'analyzed';
                         this.imageUrl = this.getImageUrl(this.currentFile.name, 'analyzed');
@@ -366,6 +375,9 @@ window.analyzeMixin = {
             if (response.ok) {
                 const data = await response.json();
                 this.id = data.id;
+                if (this.selectedResearch) {
+                    this.selectedResearch.id = data.id;
+                }
                 console.log('Сохранено исследование с ID:', data.id);
             } else {
                 console.error('Ошибка сохранения исследования.');
@@ -411,6 +423,7 @@ window.analyzeMixin = {
             modal.hide();
         }
     },
+
         formatDate(dateString) {
             if (!dateString) return '-';
 

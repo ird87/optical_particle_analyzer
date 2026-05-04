@@ -39,5 +39,11 @@ const api = (() => {
     // Справочники
     getMicroscopes:    ()                          => call('get_microscopes'),
     getDivisionPrices: ()                          => call('get_division_prices'),
+
+    // USB-микроскопы
+    scanCameras:            ()           => call('scan_cameras'),
+    getTestFrame:           (index)      => call('get_test_frame', index),
+    saveCustomMicroscope:   (data)       => call('save_custom_microscope', data),
+    deleteCustomMicroscope: (id)         => call('delete_custom_microscope', id),
   };
 })();

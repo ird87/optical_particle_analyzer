@@ -1,5 +1,8 @@
 import base64
+import json
 from pathlib import Path
+
+import cv2
 
 import backend.database as db
 import backend.storage as storage
@@ -12,6 +15,19 @@ from backend.models import (
     ContourData,
     Research,
 )
+
+_CUSTOM_MICROSCOPES_PATH = storage.DATA_DIR / 'microscopes.json'
+
+
+def _load_custom_microscopes() -> list[dict]:
+    if _CUSTOM_MICROSCOPES_PATH.exists():
+        return json.loads(_CUSTOM_MICROSCOPES_PATH.read_text('utf-8'))
+    return []
+
+
+def _save_custom_microscopes(data: list[dict]) -> None:
+    _CUSTOM_MICROSCOPES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CUSTOM_MICROSCOPES_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), 'utf-8')
 
 
 def _cal_to_dict(cal: Calibration) -> dict:
@@ -333,7 +349,75 @@ class Api:
     # -----------------------------------------------------------------------
 
     def get_microscopes(self) -> dict:
-        return {'ok': True, 'microscopes': [m.to_dict() for m in MICROSCOPES]}
+        built_in = [dict(**m.to_dict(), custom=False) for m in MICROSCOPES]
+        custom   = [dict(**m, custom=True) for m in _load_custom_microscopes()]
+        return {'ok': True, 'microscopes': built_in + custom}
 
     def get_division_prices(self) -> dict:
         return {'ok': True, 'division_prices': [d.to_dict() for d in DIVISION_PRICES]}
+
+    # -----------------------------------------------------------------------
+    # Управление USB-микроскопами
+    # -----------------------------------------------------------------------
+
+    def scan_cameras(self) -> dict:
+        """Сканирует индексы 0-9 и возвращает те, где cv2 открыл камеру."""
+        logger.info('scan_cameras')
+        found = []
+        for i in range(10):
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if cap.isOpened():
+                found.append({'index': i, 'label': f'Camera {i}'})
+                cap.release()
+        logger.info(f'scan_cameras: найдено {len(found)}')
+        return {'ok': True, 'cameras': found}
+
+    def get_test_frame(self, camera_index: int) -> dict:
+        """Захватывает один кадр с USB-камеры и возвращает base64."""
+        logger.info(f'get_test_frame index={camera_index}')
+        try:
+            cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                return {'ok': False, 'error': 'Камера не открылась'}
+            ret, frame = cap.read()
+            cap.release()
+            if not ret or frame is None:
+                return {'ok': False, 'error': 'Кадр не получен'}
+            _, buf = cv2.imencode('.jpg', frame)
+            b64 = 'data:image/jpeg;base64,' + base64.b64encode(buf).decode()
+            return {'ok': True, 'data': b64}
+        except Exception:
+            logger.exception(f'Ошибка get_test_frame index={camera_index}')
+            return {'ok': False, 'error': 'Ошибка захвата'}
+
+    def save_custom_microscope(self, data: dict) -> dict:
+        """Сохраняет пользовательский микроскоп в data/microscopes.json."""
+        logger.info(f'save_custom_microscope name={data.get("name")}')
+        try:
+            microscopes = _load_custom_microscopes()
+            next_id = max((m['id'] for m in microscopes), default=0) + 1
+            entry = {
+                'id':           next_id,
+                'name':         data['name'],
+                'type':         data['type'],
+                'type_localized': data.get('type_localized', data['type']),
+                'camera_index': int(data['camera_index']),
+            }
+            microscopes.append(entry)
+            _save_custom_microscopes(microscopes)
+            return {'ok': True, 'id': next_id}
+        except Exception:
+            logger.exception('Ошибка save_custom_microscope')
+            return {'ok': False}
+
+    def delete_custom_microscope(self, microscope_id: int) -> dict:
+        """Удаляет пользовательский микроскоп по id."""
+        logger.info(f'delete_custom_microscope id={microscope_id}')
+        try:
+            microscopes = _load_custom_microscopes()
+            microscopes = [m for m in microscopes if m['id'] != microscope_id]
+            _save_custom_microscopes(microscopes)
+            return {'ok': True}
+        except Exception:
+            logger.exception(f'Ошибка delete_custom_microscope id={microscope_id}')
+            return {'ok': False}

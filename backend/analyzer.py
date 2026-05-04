@@ -183,7 +183,7 @@ def run_research_analysis(
         cv2.imwrite(str(contours_dir / src_path.name), contoured)
 
         analyzed, contours, contour_number = analyze_contours(
-            contrasted.copy(), contour_number,
+            contoured, contour_number,
             calibration_coefficient, division_price_value,
         )
         cv2.imwrite(str(analyzed_dir / src_path.name), analyzed)

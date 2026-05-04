@@ -69,7 +69,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # Заменить на 'gui/icon.ico' если появится иконка
+    icon='app.ico',
 )
 
 coll = COLLECT(

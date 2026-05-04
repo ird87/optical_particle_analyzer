@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Оптический анализатор частиц</title>
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .nav-link { cursor: pointer; }
+    [v-cloak] { display: none; }
+  </style>
+</head>
+<body>
+
+<div id="app" v-cloak class="container-fluid mt-2">
+
+  <!-- ===== HOME ===== -->
+  <home-view v-if="currentView === 'home'"></home-view>
+
+  <!-- ===== WORKSPACE ===== -->
+  <div v-else>
+
+    <div class="mb-2">
+      <button class="btn btn-sm btn-outline-secondary" @click="goHome">
+        ← Список исследований
+      </button>
+    </div>
+
+    <ul class="nav nav-tabs">
+      <li class="nav-item">
+        <a class="nav-link" :class="{ active: currentTab === 'analyze' }"
+           @click="currentTab = 'analyze'">Анализ</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link"
+           :class="{ active: currentTab === 'results', disabled: !resultsAvailable }"
+           @click="resultsAvailable && (currentTab = 'results')"
+           title="Доступно после анализа">Результаты</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" :class="{ active: currentTab === 'calibration' }"
+           @click="currentTab = 'calibration'">Калибровка</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" :class="{ active: currentTab === 'settings' }"
+           @click="currentTab = 'settings'">Настройки</a>
+      </li>
+    </ul>
+
+    <div class="tab-content border border-top-0 p-3" style="margin-top: -1px;">
+      <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
+      <results-view     v-show="currentTab === 'results'"></results-view>
+      <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
+      <settings-view    v-show="currentTab === 'settings'"></settings-view>
+    </div>
+
+  </div>
+
+</div><!-- /#app -->
+
+<script src="js/vue.global.prod.js"></script>
+<script src="js/bootstrap.bundle.min.js"></script>
+<script src="js/chart.umd.js"></script>
+<script src="api.js"></script>
+<script src="views/HomeView.js"></script>
+<script src="views/AnalyzeView.js"></script>
+<script src="views/ResultsView.js"></script>
+<script src="views/CalibrationView.js"></script>
+<script src="views/SettingsView.js"></script>
+<script>
+const { createApp } = Vue;
+
+const app = createApp({
+  data() {
+    return {
+      currentView: 'home',     // 'home' | 'workspace'
+      currentTab:  'analyze',  // 'analyze' | 'results' | 'calibration' | 'settings'
+      microscopes:    [],
+      divisionPrices: [],
+      // Общее состояние анализа: пишет AnalyzeView, читает ResultsView
+      results:  [],
+      averages: {},
+      selectedResearch:           null,
+      analyzeSelectedCalibration: null,
+    };
+  },
+  computed: {
+    resultsAvailable() {
+      return Array.isArray(this.results) && this.results.length > 0;
+    },
+  },
+  methods: {
+    async init() {
+      const mics = await api.getMicroscopes();
+      if (mics.ok) this.microscopes = mics.microscopes;
+
+      const divs = await api.getDivisionPrices();
+      if (divs.ok) this.divisionPrices = divs.division_prices;
+    },
+    goHome() {
+      this.currentView = 'home';
+    },
+    goToWorkspace() {
+      this.currentView = 'workspace';
+      this.currentTab  = 'analyze';
+    },
+    formatDate(dateStr) {
+      if (!dateStr) return '-';
+      return new Date(dateStr).toLocaleString('ru-RU');
+    },
+  },
+  mounted() {
+    this.init();
+  },
+});
+
+app.component('HomeView',        window.HomeView);
+app.component('AnalyzeView',     window.AnalyzeView);
+app.component('ResultsView',     window.ResultsView);
+app.component('CalibrationView', window.CalibrationView);
+app.component('SettingsView',    window.SettingsView);
+
+function startApp() { app.mount('#app'); }
+
+window.addEventListener('pywebviewready', startApp);
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof pywebview === 'undefined') startApp();
+});
+</script>
+</body>
+</html>

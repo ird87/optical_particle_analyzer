@@ -3,6 +3,7 @@ __pycache__/
 db.sqlite3
 /venv
 /staticfiles
+/data/
 analyzer/media/
 analyzer/migrations/
 .idea/

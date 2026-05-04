@@ -7,3 +7,6 @@ db.sqlite3
 analyzer/media/
 analyzer/migrations/
 .idea/
+/dist/
+/build/
+*.spec.bak

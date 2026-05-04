@@ -38,7 +38,7 @@ def main():
     )
 
     logger.info(f'Открытие окна: {INDEX_HTML}')
-    webview.start(debug=True)
+    webview.start(debug=False)
     logger.info('Приложение закрыто')
 
 

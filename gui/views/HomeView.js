@@ -83,7 +83,7 @@ window.HomeView = {
       this.$root.results                    = [];
       this.$root.averages                   = {};
 
-      this.$root.goToWorkspace();
+      this.$root.currentTab = 'analyze';
     },
 
     async loadResearch(id) {
@@ -106,8 +106,7 @@ window.HomeView = {
         : null;
 
       // Результаты есть — сразу открываем вкладку результатов
-      this.$root.currentView = 'workspace';
-      this.$root.currentTab  = this.$root.resultsAvailable ? 'results' : 'analyze';
+      this.$root.currentTab = (r.contours && r.contours.length > 0) ? 'results' : 'analyze';
     },
 
     async deleteResearch(id) {

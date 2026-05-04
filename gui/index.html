@@ -15,46 +15,37 @@
 
 <div id="app" v-cloak class="container-fluid mt-2">
 
-  <!-- ===== HOME ===== -->
-  <home-view v-if="currentView === 'home'"></home-view>
+  <ul class="nav nav-tabs">
+    <li class="nav-item">
+      <a class="nav-link" :class="{ active: currentTab === 'home' }"
+         @click="currentTab = 'home'">Исследования</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" :class="{ active: currentTab === 'analyze' }"
+         @click="currentTab = 'analyze'">Анализ</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link"
+         :class="{ active: currentTab === 'results', disabled: !resultsAvailable }"
+         @click="resultsAvailable && (currentTab = 'results')"
+         title="Доступно после анализа">Результаты</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" :class="{ active: currentTab === 'calibration' }"
+         @click="currentTab = 'calibration'">Калибровка</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" :class="{ active: currentTab === 'settings' }"
+         @click="currentTab = 'settings'">Настройки</a>
+    </li>
+  </ul>
 
-  <!-- ===== WORKSPACE ===== -->
-  <div v-else>
-
-    <div class="mb-2">
-      <button class="btn btn-sm btn-outline-secondary" @click="goHome">
-        ← Список исследований
-      </button>
-    </div>
-
-    <ul class="nav nav-tabs">
-      <li class="nav-item">
-        <a class="nav-link" :class="{ active: currentTab === 'analyze' }"
-           @click="currentTab = 'analyze'">Анализ</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link"
-           :class="{ active: currentTab === 'results', disabled: !resultsAvailable }"
-           @click="resultsAvailable && (currentTab = 'results')"
-           title="Доступно после анализа">Результаты</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" :class="{ active: currentTab === 'calibration' }"
-           @click="currentTab = 'calibration'">Калибровка</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" :class="{ active: currentTab === 'settings' }"
-           @click="currentTab = 'settings'">Настройки</a>
-      </li>
-    </ul>
-
-    <div class="tab-content border border-top-0 p-3" style="margin-top: -1px;">
-      <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
-      <results-view     v-show="currentTab === 'results'"></results-view>
-      <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
-      <settings-view    v-show="currentTab === 'settings'"></settings-view>
-    </div>
-
+  <div class="tab-content border border-top-0 p-3" style="margin-top: -1px;">
+    <home-view        v-show="currentTab === 'home'"></home-view>
+    <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
+    <results-view     v-show="currentTab === 'results'"></results-view>
+    <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
+    <settings-view    v-show="currentTab === 'settings'"></settings-view>
   </div>
 
 </div><!-- /#app -->
@@ -74,8 +65,7 @@ const { createApp } = Vue;
 const app = createApp({
   data() {
     return {
-      currentView: 'home',     // 'home' | 'workspace'
-      currentTab:  'analyze',  // 'analyze' | 'results' | 'calibration' | 'settings'
+      currentTab: 'home',  // 'home' | 'analyze' | 'results' | 'calibration' | 'settings'
       microscopes:    [],
       divisionPrices: [],
       // Общее состояние анализа: пишет AnalyzeView, читает ResultsView
@@ -97,13 +87,6 @@ const app = createApp({
 
       const divs = await api.getDivisionPrices();
       if (divs.ok) this.divisionPrices = divs.division_prices;
-    },
-    goHome() {
-      this.currentView = 'home';
-    },
-    goToWorkspace() {
-      this.currentView = 'workspace';
-      this.currentTab  = 'analyze';
     },
     formatDate(dateStr) {
       if (!dateStr) return '-';

@@ -1,8 +1,46 @@
 window.AnalyzeView = {
   template: `
     <div>
+
+      <!-- Кнопки Новое / Загрузить -->
+      <div v-if="!isResearchLoadVisible" class="col-md-4 d-flex justify-content-between mt-2 mb-2">
+        <button class="btn flex-fill btn-primary me-1" @click="createNewResearch">Новое</button>
+        <button class="btn flex-fill btn-secondary ms-1" @click="toggleResearchLoadBlock">Загрузить</button>
+      </div>
+
+      <!-- Блок загрузки исследования -->
+      <div v-if="isResearchLoadVisible" class="border p-3 mb-3">
+        <h6>Загрузка исследования</h6>
+        <table class="table table-bordered table-sm table-hover" style="cursor:pointer;">
+          <thead>
+            <tr>
+              <th>#</th><th>Название</th><th>Сотрудник</th><th>Микроскоп</th><th>Дата</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in loadResearches" :key="r.id"
+                :class="{ 'table-active': selectedResearchRow && selectedResearchRow.id === r.id }"
+                @click="selectedResearchRow = r"
+                @dblclick="doLoadResearch(r)">
+              <td>{{ r.id }}</td>
+              <td>{{ r.name }}</td>
+              <td>{{ r.employee }}</td>
+              <td>{{ r.microscope }}</td>
+              <td>{{ $root.formatDate(r.date) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="d-flex col-md-6 justify-content-end mt-2 ms-auto">
+          <button class="btn flex-fill btn-danger me-1"
+                  :disabled="!selectedResearchRow" @click="deleteLoadResearch">Удалить</button>
+          <button class="btn flex-fill btn-primary me-1"
+                  :disabled="!selectedResearchRow" @click="doLoadResearch(selectedResearchRow)">Загрузить</button>
+          <button class="btn flex-fill btn-secondary" @click="toggleResearchLoadBlock">Отменить</button>
+        </div>
+      </div>
+
       <!-- Форма исследования -->
-      <div class="border p-2 pb-0 mb-2 mt-2">
+      <div v-if="!isResearchLoadVisible" class="border p-2 pb-0 mb-2">
         <div class="row mb-2">
           <div class="col-md-9">
             <label class="form-label">Название:</label>
@@ -35,7 +73,7 @@ window.AnalyzeView = {
       </div>
 
       <!-- Рабочая область -->
-      <div class="border p-3 pb-0">
+      <div v-if="!isResearchLoadVisible" class="border p-3 pb-0">
         <div class="row">
 
           <!-- Список файлов -->
@@ -167,6 +205,10 @@ window.AnalyzeView = {
       selectedMicroscope: null,
       calibrations:      [],
 
+      isResearchLoadVisible: false,
+      loadResearches:        [],
+      selectedResearchRow:   null,
+
       files:             [],
       currentFile:       null,
       lastUsedIndex:     0,
@@ -247,6 +289,61 @@ window.AnalyzeView = {
   },
 
   methods: {
+    // ------------------------------------------------------------------
+    // Загрузка исследования
+    // ------------------------------------------------------------------
+    async createNewResearch() {
+      const res = await api.newResearch();
+      if (!res.ok) { this.errorMsg = 'Ошибка создания нового исследования.'; return; }
+      this.$root.selectedResearch           = null;
+      this.$root.analyzeSelectedCalibration = null;
+      this.$root.results                    = [];
+      this.$root.averages                   = {};
+    },
+
+    toggleResearchLoadBlock() {
+      if (!this.isResearchLoadVisible) this.fetchLoadResearches();
+      this.isResearchLoadVisible = !this.isResearchLoadVisible;
+      this.selectedResearchRow   = null;
+    },
+
+    async fetchLoadResearches() {
+      const res = await api.getResearches();
+      if (res.ok) this.loadResearches = res.researches;
+    },
+
+    async doLoadResearch(r) {
+      const res = await api.loadResearch(r.id);
+      if (!res.ok) { this.errorMsg = 'Не удалось загрузить исследование.'; return; }
+      const research = res.research;
+      this.$root.selectedResearch = research;
+      this.$root.results          = research.contours || [];
+      this.$root.averages         = {
+        perimeter: research.average_perimeter,
+        area:      research.average_area,
+        width:     research.average_width,
+        length:    research.average_length,
+        dek:       research.average_dek,
+      };
+      this.$root.analyzeSelectedCalibration = research.calibration_id
+        ? { id: research.calibration_id }
+        : null;
+      this.isResearchLoadVisible = false;
+      this.selectedResearchRow   = null;
+    },
+
+    async deleteLoadResearch() {
+      if (!this.selectedResearchRow) return;
+      if (!confirm('Удалить исследование? Это действие необратимо.')) return;
+      const res = await api.deleteResearch(this.selectedResearchRow.id);
+      if (res.ok) {
+        this.loadResearches    = this.loadResearches.filter(r => r.id !== this.selectedResearchRow.id);
+        this.selectedResearchRow = null;
+      } else {
+        this.errorMsg = 'Не удалось удалить исследование.';
+      }
+    },
+
     // ------------------------------------------------------------------
     // Инициализация из корневого состояния
     // ------------------------------------------------------------------

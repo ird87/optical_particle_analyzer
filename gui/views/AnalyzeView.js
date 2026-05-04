@@ -270,12 +270,20 @@ window.AnalyzeView = {
   },
 
   watch: {
-    // Когда в root появляется новое/загруженное исследование — синхронизируем форму
+    // Когда загружается существующее исследование — синхронизируем форму
     '$root.selectedResearch': {
       immediate: true,
       handler(research) {
-        this.syncFromRoot(research);
+        if (research) this.syncFromRoot(research);
       },
+    },
+    // Сигнал «новое исследование» — очищаем форму (даже если selectedResearch уже был null)
+    '$root.analyzeResetKey'() {
+      this.syncFromRoot(null);
+    },
+    // Обновляем список калибровок при каждом открытии вкладки Анализ
+    '$root.currentTab'(tab) {
+      if (tab === 'analyze') this.fetchCalibrations();
     },
     // При смене микроскопа сбрасываем калибровку
     selectedMicroscope(newVal, oldVal) {
@@ -299,6 +307,7 @@ window.AnalyzeView = {
       this.$root.analyzeSelectedCalibration = null;
       this.$root.results                    = [];
       this.$root.averages                   = {};
+      this.$root.analyzeResetKey++;
     },
 
     toggleResearchLoadBlock() {

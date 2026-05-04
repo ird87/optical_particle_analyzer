@@ -60,6 +60,12 @@ window.HomeView = {
     this.fetchResearches();
   },
 
+  watch: {
+    '$root.currentTab'(tab) {
+      if (tab === 'home') this.fetchResearches();
+    },
+  },
+
   methods: {
     async fetchResearches() {
       this.loading  = true;
@@ -82,6 +88,7 @@ window.HomeView = {
       this.$root.analyzeSelectedCalibration = null;
       this.$root.results                    = [];
       this.$root.averages                   = {};
+      this.$root.analyzeResetKey++;
 
       this.$root.currentTab = 'analyze';
     },

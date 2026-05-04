@@ -121,12 +121,18 @@ app.component('ResultsView',     window.ResultsView);
 app.component('CalibrationView', window.CalibrationView);
 app.component('SettingsView',    window.SettingsView);
 
-function startApp() { app.mount('#app'); }
+let _mounted = false;
+function startApp() {
+  if (_mounted) return;
+  _mounted = true;
+  app.mount('#app');
+}
 
+// Основной путь: ждём когда pywebview полностью инициализирует API
 window.addEventListener('pywebviewready', startApp);
-document.addEventListener('DOMContentLoaded', () => {
-  if (typeof pywebview === 'undefined') startApp();
-});
+
+// Fallback только для отладки в обычном браузере (pywebviewready там никогда не придёт)
+setTimeout(() => { if (!_mounted) startApp(); }, 500);
 </script>
 </body>
 </html>

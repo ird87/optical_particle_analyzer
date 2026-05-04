@@ -29,8 +29,7 @@ window.ResultsView = {
       </div>
 
       <!-- Параметры с гистограммами -->
-      <div class="p-3 pt-0"
-           style="max-height:680px;overflow-y:auto;border:1px solid #dee2e6;background:#fff;">
+      <div class="results-scroll p-3 pt-0">
 
         <h6 class="mt-3 mb-3 d-flex align-items-center justify-content-between">
           <span>Распределение параметров</span>

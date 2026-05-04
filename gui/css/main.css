@@ -1,31 +1,310 @@
+/* =============================================================
+   Оптический анализатор частиц — единый научный UI
+   Palette: #070b4a (navy) / #ffffff (white)
+   ============================================================= */
+
+/* --- Переменные -------------------------------------------- */
+:root {
+  --navy:         #070b4a;
+  --navy-hover:   #0e1566;
+  --navy-light:   #eef0f9;
+  --navy-faint:   rgba(7, 11, 74, .05);
+  --navy-mid:     rgba(7, 11, 74, .13);
+  --navy-border:  rgba(7, 11, 74, .16);
+  --c-muted:      #6b7280;
+}
+
+/* --- База -------------------------------------------------- */
+body {
+  background: #f3f4fb;
+  color: var(--navy);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: .9rem;
+}
+
+/* --- Заголовок приложения ---------------------------------- */
+.app-header {
+  background: var(--navy);
+  color: #fff;
+  padding: .55rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  user-select: none;
+}
+.app-header-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  opacity: .85;
+}
+.app-header-title {
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  line-height: 1.25;
+}
+.app-header-sub {
+  font-size: .68rem;
+  opacity: .5;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* --- Вкладки ----------------------------------------------- */
+.nav-tabs {
+  border-bottom: 2px solid var(--navy);
+  background: #fff;
+  padding: .35rem 1rem 0;
+  gap: .1rem;
+  flex-wrap: nowrap;
+}
+.nav-tabs .nav-link {
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: .45rem 1.05rem;
+  color: var(--c-muted);
+  font-size: .84rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color .12s, border-color .12s, background .12s;
+  margin-bottom: -2px;
+  cursor: pointer;
+}
+.nav-tabs .nav-link:hover:not(.disabled) {
+  color: var(--navy);
+  border-bottom-color: rgba(7, 11, 74, .28);
+  background: var(--navy-faint);
+}
+.nav-tabs .nav-link.active {
+  color: var(--navy);
+  font-weight: 700;
+  border-bottom-color: var(--navy);
+  background: transparent;
+}
+.nav-tabs .nav-link.disabled {
+  color: #c5c8d6;
+  cursor: default;
+}
+
+/* --- Содержимое вкладок ------------------------------------ */
+.tab-content {
+  background: #fff;
+  border-color: var(--navy-border) !important;
+}
+
+/* --- Кнопки ------------------------------------------------ */
+.btn-primary {
+  background-color: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background-color: var(--navy-hover);
+  border-color: var(--navy-hover);
+  color: #fff;
+}
+.btn-primary:disabled,
+.btn-primary.disabled {
+  background-color: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+  opacity: .38;
+}
+.btn-primary:focus-visible {
+  box-shadow: 0 0 0 .2rem rgba(7, 11, 74, .28);
+}
+
+.btn-outline-primary {
+  color: var(--navy);
+  border-color: var(--navy);
+  background: transparent;
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus-visible,
+.btn-outline-primary.active,
+.btn-outline-primary:active {
+  background-color: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn-outline-primary:disabled,
+.btn-outline-primary.disabled {
+  color: var(--navy);
+  border-color: var(--navy);
+  background: transparent;
+  opacity: .32;
+}
+
+.btn-secondary {
+  background-color: var(--c-muted);
+  border-color: var(--c-muted);
+  color: #fff;
+}
+.btn-secondary:hover {
+  background-color: #4b5563;
+  border-color: #4b5563;
+  color: #fff;
+}
+
+.btn-outline-secondary {
+  color: var(--c-muted);
+  border-color: var(--c-muted);
+}
+.btn-outline-secondary:hover {
+  background-color: var(--c-muted);
+  border-color: var(--c-muted);
+  color: #fff;
+}
+
+/* --- Формы ------------------------------------------------- */
+.form-label {
+  font-weight: 700;
+  font-size: .75rem;
+  color: var(--navy);
+  margin-bottom: .2rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.form-control,
+.form-select {
+  border-color: var(--navy-border);
+  color: var(--navy);
+  font-size: .88rem;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 .2rem rgba(7, 11, 74, .14);
+  color: var(--navy);
+}
+.form-control::placeholder {
+  color: #a5adc4;
+  font-style: italic;
+}
+
+/* --- Таблицы ----------------------------------------------- */
+.table {
+  color: var(--navy);
+  font-size: .86rem;
+}
+.table > :not(caption) > * > * {
+  border-color: rgba(7, 11, 74, .1);
+}
+.table-light,
+.table-light th,
+thead.table-light th {
+  background-color: var(--navy-light) !important;
+  color: var(--navy);
+}
+.table-light th,
+thead.table-light th {
+  font-weight: 700;
+  font-size: .75rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.table-hover > tbody > tr:hover > * {
+  background-color: var(--navy-faint);
+  color: var(--navy);
+}
+.table-active,
+.table-active > td,
+.table-active > th {
+  background-color: var(--navy-mid) !important;
+}
+
+/* --- Границы ----------------------------------------------- */
+.border {
+  border-color: var(--navy-border) !important;
+}
+.border-primary {
+  border-color: var(--navy) !important;
+}
+
+/* --- Превью изображений ------------------------------------ */
+.img-thumbnail {
+  background: #f0f1f9;
+  border-color: var(--navy-border);
+}
+
+/* --- Badges ----------------------------------------------- */
+.badge.bg-secondary {
+  background-color: var(--c-muted) !important;
+  font-weight: 500;
+}
+
+/* --- Алерты ----------------------------------------------- */
+.alert-danger {
+  background-color: #fff2f2;
+  border-color: #f5c2c7;
+  color: #7b1e26;
+}
+
+/* --- Списки ----------------------------------------------- */
+.list-group-item {
+  color: var(--navy);
+  border-color: rgba(7, 11, 74, .12);
+}
+.list-group-item.active {
+  background-color: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.list-group-item:hover:not(.active) {
+  background-color: var(--navy-faint);
+  color: var(--navy);
+}
+
+/* --- Утилиты ----------------------------------------------- */
+.bg-light {
+  background-color: var(--navy-light) !important;
+}
+.text-muted {
+  color: var(--c-muted) !important;
+}
+h5, h6 {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/* --- Область прокрутки результатов ------------------------- */
+.results-scroll {
+  max-height: 680px;
+  overflow-y: auto;
+  border: 1px solid var(--navy-border);
+  background: #fff;
+}
+
+/* --- Кастомная таблица (совместимость) --------------------- */
 .table-custom-border {
   width: 100%;
   text-align: center;
-  border-collapse: separate; /* Don't collapse */
+  border-collapse: separate;
   border-spacing: 0;
 }
-
 .table-custom-border th {
-  /* Apply both top and bottom borders to the <th> */
-  border-top: 1px solid #dee2e6;
-  border-bottom: 1px solid #dee2e6;
-  border-right: 1px solid #dee2e6;
+  border-top: 1px solid rgba(7, 11, 74, .14);
+  border-bottom: 1px solid rgba(7, 11, 74, .14);
+  border-right: 1px solid rgba(7, 11, 74, .14);
+  background-color: var(--navy-light);
+  color: var(--navy);
+  font-size: .75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
 }
-
 .table-custom-border td {
-  /* For cells, apply the border to one of each side only (right but not left, bottom but not top) */
-  border-bottom: 1px solid #dee2e6;
-  border-right: 1px solid #dee2e6;
+  border-bottom: 1px solid rgba(7, 11, 74, .09);
+  border-right: 1px solid rgba(7, 11, 74, .09);
 }
-
 .table-custom-border th:first-child,
 .table-custom-border td:first-child {
-  /* Apply a left border on the first <td> or <th> in a row */
-  border-left: 1px solid #dee2e6;
+  border-left: 1px solid rgba(7, 11, 74, .14);
 }
-
 .table-custom-border thead th {
   position: sticky;
   top: 0;
-  background-color: #edecec;
+  background-color: var(--navy-light);
 }

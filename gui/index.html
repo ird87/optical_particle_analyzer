@@ -7,14 +7,23 @@
   <link rel="stylesheet" href="css/bootstrap.min.css">
   <link rel="stylesheet" href="css/main.css">
   <style>
-    .nav-link { cursor: pointer; }
     [v-cloak] { display: none; }
   </style>
 </head>
 <body>
 
-<div id="app" v-cloak class="container-fluid mt-2">
+<div id="app" v-cloak>
 
+  <!-- Шапка приложения -->
+  <div class="app-header">
+    <div class="app-header-icon">◉</div>
+    <div>
+      <div class="app-header-title">Оптический анализатор частиц</div>
+      <div class="app-header-sub">Optical Particle Analyzer</div>
+    </div>
+  </div>
+
+  <!-- Навигация -->
   <ul class="nav nav-tabs">
     <li class="nav-item">
       <a class="nav-link" :class="{ active: currentTab === 'home' }"
@@ -40,12 +49,15 @@
     </li>
   </ul>
 
-  <div class="tab-content border border-top-0 p-3" style="margin-top: -1px;">
-    <home-view        v-show="currentTab === 'home'"></home-view>
-    <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
-    <results-view     v-show="currentTab === 'results'"></results-view>
-    <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
-    <settings-view    v-show="currentTab === 'settings'"></settings-view>
+  <!-- Содержимое вкладок -->
+  <div class="px-3">
+    <div class="tab-content border border-top-0 p-3" style="margin-top:-1px;">
+      <home-view        v-show="currentTab === 'home'"></home-view>
+      <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
+      <results-view     v-show="currentTab === 'results'"></results-view>
+      <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
+      <settings-view    v-show="currentTab === 'settings'"></settings-view>
+    </div>
   </div>
 
 </div><!-- /#app -->
@@ -112,10 +124,7 @@ function startApp() {
   app.mount('#app');
 }
 
-// Основной путь: ждём когда pywebview полностью инициализирует API
 window.addEventListener('pywebviewready', startApp);
-
-// Fallback только для отладки в обычном браузере (pywebviewready там никогда не придёт)
 setTimeout(() => { if (!_mounted) startApp(); }, 500);
 </script>
 </body>

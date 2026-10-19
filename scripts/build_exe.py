@@ -1,9 +1,49 @@
 """Build the Windows application in a dedicated virtual environment."""
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
+
+
+def publish_build(prepared: Path, destination: Path) -> None:
+    """Keep the old application intact until packaging and data copying succeed."""
+    sources = [path for path in (
+        destination / '_internal' / 'data', destination / 'data',
+    ) if path.exists()]
+    if len(sources) > 1:
+        raise RuntimeError(
+            f'Two data folders found in {destination}. '
+            'Keep the active data folder there and move the other to a safe location.'
+        )
+    if sources:
+        shutil.copytree(sources[0], prepared / '_internal' / 'data')
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
+    if destination.exists():
+        backups = destination.parent / 'backups'
+        backups.mkdir(exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        backup = backups / f'{destination.name}-{stamp}-{uuid4().hex[:8]}'
+        destination.rename(backup)
+        print(f'Previous build saved: {backup}', flush=True)
+    try:
+        prepared.rename(destination)
+    except OSError as error:
+        if backup is not None and not destination.exists():
+            try:
+                backup.rename(destination)
+            except OSError:
+                raise RuntimeError(
+                    f'Cannot publish the build or restore its previous location. '
+                    f'The previous application and data are safe in {backup}.'
+                ) from error
+        raise
 
 
 def build_project(root: Path) -> Path:
@@ -14,16 +54,10 @@ def build_project(root: Path) -> Path:
 
     root = root.resolve()
     destination = root / 'dist' / 'optical_analyzer'
-    for data in (destination / 'data', destination / '_internal' / 'data'):
-        if data.exists():
-            raise RuntimeError(
-                f'Existing application data found: {data}. '
-                f'Move the entire previous application folder ({destination}) '
-                'to another location before rebuilding.'
-            )
     for required in ('requirements.txt', 'app.spec', 'tests'):
         if not (root / required).exists():
             raise RuntimeError(f'Missing build input: {root / required}')
+    print('Close the application before rebuilding so its data can be copied safely.', flush=True)
 
     env = os.environ.copy()
     env.pop('PYTHONPATH', None)
@@ -43,19 +77,24 @@ def build_project(root: Path) -> Path:
     run([python, '-m', 'pip', 'install', '--upgrade', 'pip'])
     run([python, '-m', 'pip', 'install', '-r', str(root / 'requirements.txt')])
     run([python, '-m', 'pytest', str(root / 'tests'), '-q'])
-    run([
-        python, '-m', 'PyInstaller', '--noconfirm', '--clean',
-        '--distpath', str(root / 'dist'), '--workpath', str(root / 'build'),
-        str(root / 'app.spec'),
-    ])
-
-    output = root / 'dist' / 'optical_analyzer' / 'optical_analyzer.exe'
-    if not output.is_file():
-        raise RuntimeError(f'Build finished without the expected exe: {output}')
-    with output.open('rb') as executable:
-        if executable.read(2) != b'MZ':
-            raise RuntimeError(f'Invalid Windows exe: {output}')
-    return output
+    work = root / 'build'
+    work.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='exe-', dir=work) as temporary:
+        stage = Path(temporary)
+        run([
+            python, '-m', 'PyInstaller', '--noconfirm', '--clean',
+            '--distpath', str(stage / 'dist'), '--workpath', str(stage / 'work'),
+            str(root / 'app.spec'),
+        ])
+        prepared = stage / 'dist' / 'optical_analyzer'
+        output = prepared / 'optical_analyzer.exe'
+        if not output.is_file():
+            raise RuntimeError(f'Build finished without the expected exe: {output}')
+        with output.open('rb') as executable:
+            if executable.read(2) != b'MZ':
+                raise RuntimeError(f'Invalid Windows exe: {output}')
+        publish_build(prepared, destination)
+    return destination / 'optical_analyzer.exe'
 
 
 def main() -> int:

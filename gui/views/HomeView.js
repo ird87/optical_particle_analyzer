@@ -83,12 +83,7 @@ window.HomeView = {
       const res = await api.newResearch();
       if (!res.ok) { this.errorMsg = 'Ошибка создания нового исследования.'; return; }
 
-      // Сбрасываем общее состояние
-      this.$root.selectedResearch           = null;
-      this.$root.analyzeSelectedCalibration = null;
-      this.$root.results                    = [];
-      this.$root.averages                   = {};
-      this.$root.analyzeResetKey++;
+      this.$root.resetResearch(res);
 
       this.$root.currentTab = 'analyze';
     },
@@ -99,7 +94,9 @@ window.HomeView = {
 
       const r = res.research;
 
+      this.$root.researchRevision = res.revision;
       this.$root.selectedResearch = r;
+      this.$root.analyzeResetKey++;
       this.$root.results          = r.contours || [];
       this.$root.averages         = {
         perimeter: r.average_perimeter,
@@ -120,6 +117,7 @@ window.HomeView = {
       if (!confirm('Удалить исследование? Это действие необратимо.')) return;
       const res = await api.deleteResearch(id);
       if (res.ok) {
+        this.$root.onResearchDeleted(id, res);
         this.researches = this.researches.filter(r => r.id !== id);
       } else {
         this.errorMsg = 'Не удалось удалить исследование.';

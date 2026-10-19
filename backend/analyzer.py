@@ -7,6 +7,8 @@ from backend.logger import logger
 from backend.storage import (
     SESSION_CAL_DIR,
     SESSION_RES_DIR,
+    read_image,
+    write_image,
 )
 
 # ---------------------------------------------------------------------------
@@ -21,82 +23,81 @@ def increase_contrast(image: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
 
 
-def find_and_draw_contours(image: np.ndarray) -> np.ndarray:
+def extract_particle_contours(image: np.ndarray, threshold_mode: str = 'fixed') -> list[np.ndarray]:
+    if threshold_mode not in ('fixed', 'otsu'):
+        raise ValueError('Неизвестный метод выделения частиц')
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    h, w = image.shape[:2]
+    mode = cv2.THRESH_BINARY_INV
+    if threshold_mode == 'otsu':
+        mode |= cv2.THRESH_OTSU
+    _, mask = cv2.threshold(gray, 127 if threshold_mode == 'fixed' else 0, 255, mode)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    h, w = gray.shape
+    filtered = []
+    for contour in contours:
+        x, y, cw, ch = cv2.boundingRect(contour)
+        if cv2.contourArea(contour) > 100 and x > 0 and y > 0 and x + cw < w and y + ch < h:
+            filtered.append(contour)
+    return sorted(filtered, key=lambda contour: (cv2.boundingRect(contour)[1], cv2.boundingRect(contour)[0]))
 
-    def within_bounds(cnt):
-        for pt in cnt:
-            x, y = pt[0]
-            if x <= 0 or y <= 0 or x >= w - 1 or y >= h - 1:
-                return False
-        return True
 
-    filtered = [c for c in contours if cv2.contourArea(c) > 100 and within_bounds(c)]
-    cv2.drawContours(image, filtered, -1, (0, 0, 255), 2)
-    return image
+def _validate_scale(coeff: float, division: float) -> None:
+    if not all(math.isfinite(value) and value > 0 for value in (coeff, division)):
+        raise ValueError('Коэффициент и цена деления должны быть конечными положительными числами')
 
 
 def pixels_to_real_units(pixels: float, coeff: float, division: float) -> float:
-    if coeff == 0:
-        return pixels
-    return (pixels / coeff) * division
+    _validate_scale(coeff, division)
+    return pixels / coeff * division
+
+
+def measure_contours(
+    contours: list[np.ndarray], start_number: int = 1,
+    calibration_coefficient: float = 1.0, division_price_value: float = 1.0,
+) -> tuple[list[dict], int]:
+    _validate_scale(calibration_coefficient, division_price_value)
+    scale = division_price_value / calibration_coefficient
+    results = []
+    for contour in contours:
+        moments = cv2.moments(contour)
+        area = cv2.contourArea(contour)
+        width, length = sorted(cv2.minAreaRect(contour)[1])
+        results.append({
+            'contour_number': start_number,
+            'perimeter': round(cv2.arcLength(contour, True) * scale, 2),
+            'area': round(area * scale ** 2, 2),
+            'width': round(width * scale, 2),
+            'length': round(length * scale, 2),
+            'dek': round(math.sqrt(4 * area / math.pi) * scale, 2),
+            'cx': int(moments['m10'] / moments['m00']) if moments['m00'] else 0,
+            'cy': int(moments['m01'] / moments['m00']) if moments['m00'] else 0,
+        })
+        start_number += 1
+    return results, start_number
+
+
+def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None) -> np.ndarray:
+    rendered = image.copy()
+    cv2.drawContours(rendered, contours, -1, (0, 0, 255), 2)
+    for result in results or []:
+        position = (result['cx'], result['cy'])
+        for color, thickness in (((255, 255, 255), 6), ((0, 0, 0), 2)):
+            cv2.putText(rendered, str(result['contour_number']), position,
+                        cv2.FONT_HERSHEY_SIMPLEX, .5, color, thickness)
+    return rendered
+
+
+def find_and_draw_contours(image: np.ndarray) -> np.ndarray:
+    return draw_particle_contours(image, extract_particle_contours(image))
 
 
 def analyze_contours(
-    image: np.ndarray,
-    start_number: int = 1,
-    calibration_coefficient: float = 1.0,
-    division_price_value: float = 1.0,
+    image: np.ndarray, start_number: int = 1,
+    calibration_coefficient: float = 1.0, division_price_value: float = 1.0,
 ) -> tuple[np.ndarray, list[dict], int]:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    h, w = image.shape[:2]
-
-    def within_bounds(cnt):
-        for pt in cnt:
-            x, y = pt[0]
-            if x <= 0 or y <= 0 or x >= w - 1 or y >= h - 1:
-                return False
-        return True
-
-    filtered = [c for c in contours if cv2.contourArea(c) > 100 and within_bounds(c)]
-    results = []
-
-    for cnt in filtered:
-        M = cv2.moments(cnt)
-        cx = int(M['m10'] / M['m00']) if M['m00'] != 0 else 0
-        cy = int(M['m01'] / M['m00']) if M['m00'] != 0 else 0
-
-        perimeter_px = cv2.arcLength(cnt, True)
-        area_px = cv2.contourArea(cnt)
-        rect = cv2.minAreaRect(cnt)
-        width_px = min(rect[1])
-        length_px = max(rect[1])
-        dek_px = math.sqrt((4 * area_px) / math.pi)
-
-        c, d = calibration_coefficient, division_price_value
-        results.append({
-            'contour_number': start_number,
-            'perimeter': round(pixels_to_real_units(perimeter_px, c, d), 2),
-            'area':      round(pixels_to_real_units(area_px, c ** 2, d ** 2), 2),
-            'length':    round(pixels_to_real_units(length_px, c, d), 2),
-            'width':     round(pixels_to_real_units(width_px, c, d), 2),
-            'dek':       round(pixels_to_real_units(dek_px, c, d), 2),
-            'cx': cx,
-            'cy': cy,
-        })
-
-        cv2.putText(image, str(start_number), (cx, cy),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 6)
-        cv2.putText(image, str(start_number), (cx, cy),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-        start_number += 1
-
-    return image, results, start_number
+    contours = extract_particle_contours(image)
+    results, next_number = measure_contours(contours, start_number, calibration_coefficient, division_price_value)
+    return draw_particle_contours(image, contours, results), results, next_number
 
 
 # ---------------------------------------------------------------------------
@@ -146,12 +147,14 @@ def detect_black_strips_left_edges(binary: np.ndarray, draw_img: np.ndarray) -> 
 def run_research_analysis(
     calibration_coefficient: float = 1.0,
     division_price_value: float = 1.0,
+    *, threshold_mode: str = 'fixed',
 ) -> dict:
     """
     Обрабатывает все файлы из session/research/sources/.
     Результаты пишет в contrasted/, contours/, analyzed/.
     Возвращает {'contours': [...], 'averages': {...}}.
     """
+    _validate_scale(calibration_coefficient, division_price_value)
     sources_dir    = SESSION_RES_DIR / 'sources'
     contrasted_dir = SESSION_RES_DIR / 'contrasted'
     contours_dir   = SESSION_RES_DIR / 'contours'
@@ -171,22 +174,22 @@ def run_research_analysis(
             continue
         logger.info(f'Обработка {src_path.name}')
 
-        image = cv2.imread(str(src_path))
+        image = read_image(src_path)
         if image is None:
             logger.error(f'Не удалось прочитать {src_path.name}')
             continue
 
         contrasted = increase_contrast(image.copy())
-        cv2.imwrite(str(contrasted_dir / src_path.name), contrasted)
+        write_image(contrasted_dir / src_path.name, contrasted)
 
-        contoured = find_and_draw_contours(contrasted.copy())
-        cv2.imwrite(str(contours_dir / src_path.name), contoured)
-
-        analyzed, contours, contour_number = analyze_contours(
-            contoured, contour_number,
-            calibration_coefficient, division_price_value,
+        detected = extract_particle_contours(contrasted, threshold_mode)
+        contours, contour_number = measure_contours(
+            detected, contour_number, calibration_coefficient, division_price_value,
         )
-        cv2.imwrite(str(analyzed_dir / src_path.name), analyzed)
+        contoured = draw_particle_contours(contrasted, detected)
+        write_image(contours_dir / src_path.name, contoured)
+        analyzed = draw_particle_contours(contrasted, detected, contours)
+        write_image(analyzed_dir / src_path.name, analyzed)
 
         logger.info(f'{src_path.name}: найдено {len(contours)} контуров')
         all_contours.extend(contours)
@@ -198,6 +201,17 @@ def run_research_analysis(
 
     logger.info(f'Анализ завершён: итого {len(all_contours)} контуров')
     return {'contours': all_contours, 'averages': averages}
+
+
+def estimate_scale_spacing(xs: list[int]) -> float:
+    distances = np.diff(sorted(set(xs)))
+    if len(distances) < 3:
+        raise ValueError('Для калибровки нужно не менее четырёх штрихов шкалы')
+    median = float(np.median(distances))
+    consistent = distances[np.abs(distances - median) <= .2 * median]
+    if len(consistent) < 3 or len(consistent) < .6 * len(distances):
+        raise ValueError('Не удалось определить равномерный шаг шкалы')
+    return float(np.median(consistent))
 
 
 def run_calibration_analysis() -> dict:
@@ -212,25 +226,20 @@ def run_calibration_analysis() -> dict:
 
     logger.info('Калибровка: начало обработки')
 
-    src = cv2.imread(str(source_path))
+    src = read_image(source_path)
     if src is None:
         raise ValueError('Не удалось прочитать sources.jpg')
 
     contrasted = increase_contrast(src)
-    cv2.imwrite(str(SESSION_CAL_DIR / 'contrasted.jpg'), contrasted)
+    write_image(SESSION_CAL_DIR / 'contrasted.jpg', contrasted)
 
     binary = find_vertical_lines(contrasted)
     contours_img = contrasted.copy()
     xs = detect_black_strips_left_edges(binary, contours_img)
-    cv2.imwrite(str(SESSION_CAL_DIR / 'contours.jpg'), contours_img)
+    write_image(SESSION_CAL_DIR / 'contours.jpg', contours_img)
 
-    if len(xs) < 2:
-        cv2.imwrite(str(SESSION_CAL_DIR / 'calibrated.jpg'), contrasted)
-        logger.info('Калибровка: найдено менее 2 полос, коэффициент=0')
-        return {'coefficient': 0.0}
-
+    avg_distance = estimate_scale_spacing(xs)
     distances = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
-    avg_distance = sum(distances) / len(distances)
 
     final_img = contrasted.copy()
     h, w = final_img.shape[:2]
@@ -238,7 +247,8 @@ def run_calibration_analysis() -> dict:
     y_blue = int(h * 0.6)
     cv2.line(final_img, (xs[0], y_blue), (xs[-1], y_blue), (255, 0, 0), 2)
 
-    mid = len(distances) // 2
+    candidates = [i for i, distance in enumerate(distances) if abs(distance - avg_distance) <= .2 * avg_distance]
+    mid = candidates[len(candidates) // 2]
     x_s, x_e = xs[mid], xs[mid + 1]
     y_red = int(h * 0.5)
     cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
@@ -248,7 +258,7 @@ def run_calibration_analysis() -> dict:
     cv2.putText(final_img, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 3)
     cv2.putText(final_img, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
 
-    cv2.imwrite(str(SESSION_CAL_DIR / 'calibrated.jpg'), final_img)
+    write_image(SESSION_CAL_DIR / 'calibrated.jpg', final_img)
 
     coefficient = round(avg_distance, 3)
     logger.info(f'Калибровка завершена: коэффициент={coefficient}')

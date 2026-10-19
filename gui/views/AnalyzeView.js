@@ -54,7 +54,7 @@ window.AnalyzeView = {
         <div class="row mb-3">
           <div class="col-md-6">
             <label class="form-label">Микроскоп:</label>
-            <select v-model="selectedMicroscope" class="form-select">
+            <select v-model="selectedMicroscope" class="form-select" @change="onMicroscopeChange" :disabled="busy || $root.researchPending">
               <option :value="null" disabled>Выберите микроскоп</option>
               <option v-for="m in $root.microscopes" :key="m.name" :value="m">{{ m.name }}</option>
             </select>
@@ -62,7 +62,7 @@ window.AnalyzeView = {
           <div class="col-md-6">
             <label class="form-label">Калибровка:</label>
             <select v-model="$root.analyzeSelectedCalibration" class="form-select"
-                    :disabled="isCalibrationSelectDisabled">
+                    :disabled="isCalibrationSelectDisabled" @change="onCalibrationChange">
               <option :value="null" disabled>{{ calibrationPlaceholder }}</option>
               <option v-for="c in availableCalibrations" :key="c.id" :value="c">
                 {{ c.name }} (k={{ c.coefficient }})
@@ -127,11 +127,14 @@ window.AnalyzeView = {
             <div class="mb-3" style="width:400px;" v-if="isDefaultMicroscope">
               <input type="file" accept="image/*" multiple @change="handleFileSelect" class="form-control">
             </div>
-            <!-- Кнопки для подключённого микроскопа -->
-            <div class="d-flex mb-3" style="width:400px;" v-if="!isDefaultMicroscope">
-              <button class="btn btn-info flex-fill me-1" v-if="canShowCamera">Камера</button>
-              <button class="btn btn-success flex-fill mx-1" v-if="isAutomaticMicroscope">Старт</button>
-              <button class="btn btn-primary flex-fill ms-1" v-if="isManualMicroscope">Снимок</button>
+            <div v-if="!isDefaultMicroscope" class="w-100">
+              <camera-panel v-if="isManualMicroscope" :microscope="selectedMicroscope" context="research"
+                            :active="$root.currentTab === 'analyze'" :revision="$root.researchRevision"
+                            :disabled="busy || $root.researchPending || sessionSyncing" @connected="refreshSession" @captured="onCaptured" @error="errorMsg = $event"></camera-panel>
+              <div v-if="isAutomaticMicroscope" class="small text-muted mb-2">
+                <button class="btn btn-sm btn-secondary" disabled>Старт</button>
+                Автоматическое перемещение ещё не подключено
+              </div>
             </div>
           </div>
 
@@ -199,6 +202,10 @@ window.AnalyzeView = {
 
   data() {
     return {
+      sessionSyncing: false,
+      refreshGeneration: 0,
+      syncGeneration: 0,
+      imageRequest: 0,
       researchId:        0,
       name:              '',
       employee:          '',
@@ -232,7 +239,7 @@ window.AnalyzeView = {
       return this.calibrations.filter(c => c.microscope === this.selectedMicroscope.name);
     },
     isCalibrationSelectDisabled() {
-      return !this.selectedMicroscope;
+      return !this.selectedMicroscope || this.busy || this.$root.researchPending || this.sessionSyncing;
     },
     calibrationPlaceholder() {
       if (!this.selectedMicroscope) return 'Сначала выберите микроскоп';
@@ -240,10 +247,10 @@ window.AnalyzeView = {
       return 'Выберите калибровку';
     },
     isAnalyzeButtonDisabled() {
-      return this.files.length === 0 || !this.$root.analyzeSelectedCalibration || !this.selectedMicroscope || this.busy;
+      return this.files.length === 0 || !this.$root.analyzeSelectedCalibration || !this.selectedMicroscope || this.busy || this.$root.researchPending || this.sessionSyncing;
     },
     isSaveButtonDisabled() {
-      return this.$root.results.length === 0;
+      return this.$root.results.length === 0 || this.busy || !!this.$root.researchPending || this.sessionSyncing;
     },
     folderButtonStates() {
       const hasFiles   = this.files.length > 0;
@@ -271,23 +278,16 @@ window.AnalyzeView = {
 
   watch: {
     // Когда загружается существующее исследование — синхронизируем форму
-    '$root.selectedResearch': {
-      immediate: true,
-      handler(research) {
-        if (research) this.syncFromRoot(research);
-      },
-    },
     // Сигнал «новое исследование» — очищаем форму (даже если selectedResearch уже был null)
     '$root.analyzeResetKey'() {
-      this.syncFromRoot(null);
+      this.syncFromRoot(this.$root.selectedResearch);
     },
     // Обновляем список калибровок при каждом открытии вкладки Анализ
-    '$root.currentTab'(tab) {
-      if (tab === 'analyze') this.fetchCalibrations();
+    async '$root.currentTab'(tab) {
+      if (tab === 'analyze') { await this.fetchCalibrations(); await this.refreshSession(); }
     },
-    // При смене микроскопа сбрасываем калибровку
-    selectedMicroscope(newVal, oldVal) {
-      if (newVal !== oldVal) this.$root.analyzeSelectedCalibration = null;
+    '$root.microscopes'(items) {
+      if (this.selectedMicroscope) this.selectedMicroscope = items.find(m => m.name === this.selectedMicroscope.name) || null;
     },
   },
 
@@ -297,17 +297,57 @@ window.AnalyzeView = {
   },
 
   methods: {
+    async refreshSession() {
+      const generation = ++this.refreshGeneration;
+      this.sessionSyncing = true;
+      try {
+        const result = await api.listImages('research');
+        if (generation !== this.refreshGeneration) return;
+        if (!result.ok) { this.errorMsg = result.error; return; }
+        if (result.revision < this.$root.researchRevision) return;
+        const changed = result.revision > this.$root.researchRevision;
+        this.$root.researchRevision = result.revision;
+        if (changed) { this.clearResults(); this.selectedFolder = 'sources'; }
+        const currentName = this.currentFile?.name;
+        this.files = result.files.map(name => ({name}));
+        this.lastUsedIndex = Math.max(0, ...this.files.map(file => parseInt(file.name) || 0));
+        this.currentFile = this.files.find(file => file.name === currentName) || this.files[0] || null;
+        if (this.currentFile) await this.loadImage(this.currentFile.name, this.selectedFolder);
+        else this.currentImage = '';
+      } finally { if (generation === this.refreshGeneration) this.sessionSyncing = false; }
+    },
+    clearResults() {
+      this.$root.results = [];
+      this.$root.averages = {};
+      this.imageCache = {};
+    },
+    async onMicroscopeChange() {
+      this.$root.analyzeSelectedCalibration = null;
+      this.imageCache = {};
+      await this.$root.invalidateResearch();
+    },
+    async onCalibrationChange() {
+      this.imageCache = {};
+      await this.$root.invalidateResearch();
+    },
+    async onCaptured(result) {
+      if (result.revision <= this.$root.researchRevision) return;
+      this.$root.researchRevision = result.revision;
+      this.clearResults();
+      const file = {name:result.filename};
+      this.files.push(file);
+      this.lastUsedIndex = Math.max(this.lastUsedIndex, parseInt(file.name) || 0);
+      this.selectedFolder = 'sources';
+      this.currentFile = file;
+      await this.loadImage(file.name, 'sources');
+    },
     // ------------------------------------------------------------------
     // Загрузка исследования
     // ------------------------------------------------------------------
     async createNewResearch() {
       const res = await api.newResearch();
       if (!res.ok) { this.errorMsg = 'Ошибка создания нового исследования.'; return; }
-      this.$root.selectedResearch           = null;
-      this.$root.analyzeSelectedCalibration = null;
-      this.$root.results                    = [];
-      this.$root.averages                   = {};
-      this.$root.analyzeResetKey++;
+      this.$root.resetResearch(res);
     },
 
     toggleResearchLoadBlock() {
@@ -325,7 +365,9 @@ window.AnalyzeView = {
       const res = await api.loadResearch(r.id);
       if (!res.ok) { this.errorMsg = 'Не удалось загрузить исследование.'; return; }
       const research = res.research;
+      this.$root.researchRevision = res.revision;
       this.$root.selectedResearch = research;
+      this.$root.analyzeResetKey++;
       this.$root.results          = research.contours || [];
       this.$root.averages         = {
         perimeter: research.average_perimeter,
@@ -346,6 +388,7 @@ window.AnalyzeView = {
       if (!confirm('Удалить исследование? Это действие необратимо.')) return;
       const res = await api.deleteResearch(this.selectedResearchRow.id);
       if (res.ok) {
+        this.$root.onResearchDeleted(this.selectedResearchRow.id, res);
         this.loadResearches    = this.loadResearches.filter(r => r.id !== this.selectedResearchRow.id);
         this.selectedResearchRow = null;
       } else {
@@ -357,6 +400,7 @@ window.AnalyzeView = {
     // Инициализация из корневого состояния
     // ------------------------------------------------------------------
     async syncFromRoot(research) {
+      const generation = ++this.syncGeneration;
       if (research) {
         this.researchId = research.id || 0;
         this.name       = research.name || '';
@@ -364,6 +408,7 @@ window.AnalyzeView = {
         this.selectedMicroscope = this.$root.microscopes.find(m => m.name === research.microscope) || null;
         // Восстановить calibration после загрузки calibrations
         await this.$nextTick();
+        if (generation !== this.syncGeneration) return;
         if (research.calibration_id) {
           this.$root.analyzeSelectedCalibration =
             this.calibrations.find(c => c.id === research.calibration_id) || null;
@@ -383,6 +428,8 @@ window.AnalyzeView = {
       this.lastUsedIndex = 0;
 
       const listRes = await api.listImages('research');
+      if (generation !== this.syncGeneration || (listRes.ok && listRes.revision < this.$root.researchRevision)) return;
+      if (listRes.ok) this.$root.researchRevision = listRes.revision;
       if (listRes.ok && listRes.files.length > 0) {
         this.files = listRes.files.map(n => ({ name: n }));
         this.lastUsedIndex = Math.max(...this.files.map(f => parseInt(f.name) || 0));
@@ -411,10 +458,15 @@ window.AnalyzeView = {
         const b64  = await this._readAsBase64(file);
         const res  = await api.uploadImage(name, b64, 'research');
         if (res.ok) {
-          this.files.push({ name });
+          this.$root.researchRevision = res.revision;
+          this.clearResults();
+          this.files.push({ name: res.filename });
+        } else {
+          this.errorMsg = res.error || 'Ошибка загрузки изображения';
         }
       }
-      if (!this.currentFile && this.files.length > 0) {
+      this.selectedFolder = 'sources';
+      if (this.files.length > 0) {
         await this.selectFile(this.files[0]);
       }
       event.target.value = '';
@@ -435,6 +487,9 @@ window.AnalyzeView = {
       if (!this.currentFile) return;
       const res = await api.deleteImage(this.currentFile.name, 'research');
       if (res.ok) {
+        this.$root.researchRevision = res.revision;
+        this.clearResults();
+        this.selectedFolder = 'sources';
         const idx = this.files.indexOf(this.currentFile);
         this.files.splice(idx, 1);
         delete this.imageCache[this.currentFile.name];
@@ -453,6 +508,7 @@ window.AnalyzeView = {
     // Изображения
     // ------------------------------------------------------------------
     async loadImage(filename, folder) {
+      const request = ++this.imageRequest;
       if (!filename) return;
       // Из кеша
       if (this.imageCache[filename]?.[folder]) {
@@ -462,7 +518,9 @@ window.AnalyzeView = {
       this.imageLoading = true;
       this.currentImage = '';
       const res = await api.getImage(filename, folder, 'research');
+      if (request !== this.imageRequest) return;
       this.imageLoading = false;
+      if (this.currentFile?.name !== filename || this.selectedFolder !== folder) return;
       if (res.ok && res.data) {
         if (!this.imageCache[filename]) this.imageCache[filename] = {};
         this.imageCache[filename][folder] = res.data;
@@ -486,7 +544,7 @@ window.AnalyzeView = {
       this.errorMsg = '';
       const res = await api.executeResearch(this.$root.analyzeSelectedCalibration?.id || 0);
       this.busy = false;
-      if (res.ok) {
+      if (res.ok && res.revision === this.$root.researchRevision) {
         this.$root.results  = res.contours;
         this.$root.averages = res.averages;
         this.$root.selectedResearch = {
@@ -504,7 +562,7 @@ window.AnalyzeView = {
         this.selectedFolder = 'analyzed';
         if (this.currentFile) await this.loadImage(this.currentFile.name, 'analyzed');
       } else {
-        this.errorMsg = 'Ошибка выполнения анализа.';
+        this.errorMsg = res.error || 'Исходные данные изменились. Повторите анализ.';
       }
     },
 
@@ -514,6 +572,7 @@ window.AnalyzeView = {
     async saveResearch() {
       this.errorMsg = '';
       const res = await api.saveResearch({
+        revision:         this.$root.researchRevision,
         id:               this.researchId,
         name:             this.name,
         employee:         this.employee,
@@ -530,7 +589,7 @@ window.AnalyzeView = {
         this.researchId = res.id;
         if (this.$root.selectedResearch) this.$root.selectedResearch.id = res.id;
       } else {
-        this.errorMsg = 'Ошибка сохранения исследования.';
+        this.errorMsg = res.error || 'Ошибка сохранения исследования.';
       }
     },
 

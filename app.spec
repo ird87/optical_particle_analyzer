@@ -9,6 +9,7 @@ PyInstaller spec-файл для сборки Оптического анали�
 Результат: dist/optical_analyzer/optical_analyzer.exe
 """
 
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 # Собираем все файлы cv2 (DLL, данные, бинарники)
@@ -29,6 +30,8 @@ a = Analysis(
     hiddenimports=[
         *cv2_hiddenimports,
         'backend.api',
+        'backend.camera',
+        'backend.microscopes',
         'backend.analyzer',
         'backend.database',
         'backend.logger',
@@ -69,7 +72,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app.ico',
+    icon='app.ico' if Path('app.ico').exists() else None,
 )
 
 coll = COLLECT(

@@ -15,9 +15,10 @@ window.SettingsView = {
                 <td>{{ m.name }}</td>
                 <td>{{ m.type_localized }}</td>
                 <td class="text-muted small">
-                  {{ m.custom ? 'USB #' + m.camera_index : '—' }}
+                  {{ m.camera_index != null ? 'Камера ' + m.camera_index : 'Не привязана' }}
                 </td>
                 <td class="text-center">
+                  <button v-if="m.type !== 'DEFAULT'" class="btn btn-sm btn-outline-primary me-1" @click="configureMicroscope(m)">Настроить</button>
                   <span v-if="!m.custom" class="badge bg-secondary">встроен</span>
                   <button v-else class="btn btn-sm btn-outline-danger"
                           @click="deleteMicroscope(m)">✕</button>
@@ -43,6 +44,19 @@ window.SettingsView = {
           </table>
         </div>
 
+      </div>
+
+      <div v-if="selectedMicroscope" class="border rounded p-3 mt-3">
+        <h6>Подключение: {{ selectedMicroscope.name }}</h6>
+        <div class="d-flex align-items-end gap-2 mb-2">
+          <div><label class="form-label">Индекс камеры</label>
+            <input type="number" min="0" step="1" class="form-control form-control-sm" v-model.number="bindingIndex" style="width:110px;">
+          </div>
+          <button class="btn btn-sm btn-primary" @click="bindCamera">Привязать камеру</button>
+        </div>
+        <div class="small text-muted mb-2">Индексы устройств показаны в результатах поиска ниже. После переподключения USB индекс может измениться.</div>
+        <camera-panel ref="savedCamera" :key="bindingVersion" :microscope="selectedMicroscope" context="settings"
+                      :active="$root.currentTab === 'settings'" :revision="0" @error="errorMsg = $event"></camera-panel>
       </div>
 
       <!-- ===== Подключение USB-микроскопа ===== -->
@@ -128,6 +142,9 @@ window.SettingsView = {
 
   data() {
     return {
+      selectedMicroscopeName: '',
+      bindingIndex: 0,
+      bindingVersion: 0,
       cameras:         [],
       scanned:         false,
       scanning:        false,
@@ -142,7 +159,28 @@ window.SettingsView = {
     };
   },
 
+  computed: {
+    selectedMicroscope() {
+      return this.$root.microscopes.find(m => m.name === this.selectedMicroscopeName) || null;
+    },
+  },
   methods: {
+    async configureMicroscope(microscope) {
+      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
+      this.selectedMicroscopeName = microscope.name;
+      this.bindingIndex = microscope.camera_index == null ? 0 : microscope.camera_index;
+      this.errorMsg = '';
+    },
+    async bindCamera() {
+      if (!this.selectedMicroscope) return;
+      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
+      const result = await api.bindMicroscope(this.selectedMicroscope.name, this.bindingIndex);
+      if (!result.ok) { this.errorMsg = result.error; return; }
+      const mics = await api.getMicroscopes();
+      if (mics.ok) this.$root.microscopes = mics.microscopes;
+      this.bindingVersion++;
+      this.errorMsg = '';
+    },
     async scanCameras() {
       this.scanning  = true;
       this.errorMsg  = '';
@@ -157,7 +195,7 @@ window.SettingsView = {
       if (res.ok) {
         this.cameras = res.cameras;
       } else {
-        this.errorMsg = 'Ошибка при поиске камер.';
+        this.errorMsg = res.error || 'Ошибка при поиске камер.';
       }
     },
 
@@ -170,6 +208,7 @@ window.SettingsView = {
 
     async testCamera() {
       if (!this.selectedCamera) return;
+      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
       this.testing   = true;
       this.testFrame = '';
       this.errorMsg  = '';
@@ -201,23 +240,27 @@ window.SettingsView = {
         if (mics.ok) this.$root.microscopes = mics.microscopes;
 
         // Сбрасываем форму
+        this.selectedMicroscopeName = this.newName.trim();
+        this.bindingIndex = this.selectedCamera.index;
+        this.bindingVersion++;
         this.selectedCamera = null;
         this.newName        = '';
         this.newType        = 'MANUAL';
         this.testFrame      = '';
       } else {
-        this.errorMsg = 'Ошибка сохранения микроскопа.';
+        this.errorMsg = res.error || 'Ошибка сохранения микроскопа.';
       }
     },
 
     async deleteMicroscope(m) {
       if (!confirm(`Удалить микроскоп «${m.name}»?`)) return;
+      if (this.selectedMicroscopeName === m.name && this.$refs.savedCamera) await this.$refs.savedCamera.stop();
       const res = await api.deleteCustomMicroscope(m.id);
       if (res.ok) {
         const mics = await api.getMicroscopes();
         if (mics.ok) this.$root.microscopes = mics.microscopes;
       } else {
-        this.errorMsg = 'Ошибка удаления микроскопа.';
+        this.errorMsg = res.error || 'Ошибка удаления микроскопа.';
       }
     },
   },

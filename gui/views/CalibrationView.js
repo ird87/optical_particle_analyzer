@@ -75,6 +75,9 @@ window.CalibrationView = {
                 <input type="file" accept="image/*" @change="handleFileSelect" class="form-control">
               </div>
 
+              <camera-panel v-if="!isDefaultMicroscope" :microscope="calibSelectedMicroscope" context="calibration"
+                            :active="$root.currentTab === 'calibration'" :revision="$root.calibrationRevision"
+                            :disabled="busy || sessionSyncing" @connected="refreshSession" @captured="onCaptured" @error="errorMsg = $event"></camera-panel>
               <!-- Кнопка Калибровка -->
               <div class="d-flex mb-3" style="width:350px;">
                 <button class="btn btn-primary flex-fill"
@@ -141,6 +144,8 @@ window.CalibrationView = {
 
   data() {
     return {
+      sessionSyncing: false,
+      refreshGeneration: 0,
       calibId:                   0,
       calibName:                 '',
       calibCoefficient:          '',
@@ -175,19 +180,56 @@ window.CalibrationView = {
   computed: {
     isSaveDisabled() {
       const n = parseFloat(this.calibCoefficient);
-      return isNaN(n) || n <= 0;
+      return !Number.isFinite(n) || n <= 0 || !this.calibSelectedMicroscope || !this.calibSelectedDivisionPrice || !this.calibName.trim() || this.busy;
     },
     isDefaultMicroscope() {
       return !this.calibSelectedMicroscope || this.calibSelectedMicroscope.type === 'DEFAULT';
     },
   },
 
+  watch: {
+    '$root.microscopes'(items) {
+      if (this.calibSelectedMicroscope) {
+        this.calibSelectedMicroscope = items.find(item => item.name === this.calibSelectedMicroscope.name) || null;
+      }
+    },
+    '$root.currentTab'(tab) { if (tab === 'calibration') this.refreshSession(); },
+  },
   methods: {
+    async refreshSession() {
+      const generation = ++this.refreshGeneration;
+      this.sessionSyncing = true;
+      try {
+        const result = await api.listImages('calibration');
+        if (generation !== this.refreshGeneration) return;
+        if (!result.ok) { this.errorMsg = result.error; return; }
+        if (result.revision <= this.$root.calibrationRevision) return;
+        this.$root.calibrationRevision = result.revision;
+        this.calibCoefficient = '';
+        for (const filename of this.calibFileStates) {
+          this.calibFileExists[filename] = result.files.includes(filename);
+          this.calibImages[filename] = '';
+        }
+        this.calibCurrentView = 'sources.jpg';
+        if (this.calibFileExists['sources.jpg']) await this._loadImage('sources.jpg');
+      } finally { if (generation === this.refreshGeneration) this.sessionSyncing = false; }
+    },
+    async onCaptured(result) {
+      if (result.revision <= this.$root.calibrationRevision) return;
+      this.$root.calibrationRevision = result.revision;
+      this.calibCoefficient = '';
+      this.calibFileExists = {'sources.jpg':true,'contrasted.jpg':false,'contours.jpg':false,'calibrated.jpg':false};
+      this.calibImages = {'sources.jpg':'','contrasted.jpg':'','contours.jpg':'','calibrated.jpg':''};
+      this.calibCurrentView = 'sources.jpg';
+      await this._loadImage('sources.jpg');
+    },
     // ------------------------------------------------------------------
     // Сессия
     // ------------------------------------------------------------------
     async createNewCalibration() {
-      await api.newCalibration();
+      const result = await api.newCalibration();
+      if (!result.ok) { this.errorMsg = result.error; return; }
+      this.$root.calibrationRevision = result.revision;
       this.calibId                   = 0;
       this.calibName                 = '';
       this.calibCoefficient          = '';
@@ -209,10 +251,7 @@ window.CalibrationView = {
       const b64 = await this._readAsBase64(file);
       const res = await api.uploadImage('sources.jpg', b64, 'calibration');
       if (res.ok) {
-        this.calibFileExists = { 'sources.jpg': true, 'contrasted.jpg': false, 'contours.jpg': false, 'calibrated.jpg': false };
-        this.calibImages     = { 'sources.jpg': '', 'contrasted.jpg': '', 'contours.jpg': '', 'calibrated.jpg': '' };
-        this.calibCurrentView = 'sources.jpg';
-        await this._loadImage('sources.jpg');
+        await this.onCaptured(res);
       } else {
         this.errorMsg = 'Ошибка загрузки файла.';
       }
@@ -234,7 +273,7 @@ window.CalibrationView = {
       this.errorMsg = '';
       const res = await api.executeCalibration();
       this.busy = false;
-      if (res.ok) {
+      if (res.ok && res.revision === this.$root.calibrationRevision) {
         this.calibCoefficient = parseFloat(res.coefficient).toFixed(3);
         for (const fname of ['contrasted.jpg', 'contours.jpg', 'calibrated.jpg']) {
           this.calibFileExists[fname] = true;
@@ -242,7 +281,7 @@ window.CalibrationView = {
         }
         this.calibCurrentView = 'calibrated.jpg';
       } else {
-        this.errorMsg = 'Ошибка выполнения калибровки.';
+        this.errorMsg = res.error || 'Исходное изображение изменилось. Повторите калибровку.';
       }
     },
 
@@ -252,6 +291,7 @@ window.CalibrationView = {
     async saveCalibration() {
       this.errorMsg = '';
       const res = await api.saveCalibration({
+        revision:      this.$root.calibrationRevision,
         id:            this.calibId,
         name:          this.calibName,
         microscope:    this.calibSelectedMicroscope?.name || '',
@@ -261,7 +301,7 @@ window.CalibrationView = {
       if (res.ok) {
         this.calibId = res.id;
       } else {
-        this.errorMsg = 'Ошибка сохранения калибровки.';
+        this.errorMsg = res.error || 'Ошибка сохранения калибровки.';
       }
     },
 
@@ -286,6 +326,7 @@ window.CalibrationView = {
       const res = await api.loadCalibration(calib.id);
       if (!res.ok) { this.errorMsg = 'Ошибка загрузки калибровки.'; return; }
 
+      this.$root.calibrationRevision = res.revision;
       const c = res.calibration;
       this.calibId          = c.id;
       this.calibName        = c.name;
@@ -317,6 +358,10 @@ window.CalibrationView = {
       if (!confirm('Удалить калибровку?')) return;
       const res = await api.deleteCalibration(this.selectedRow.id);
       if (res.ok) {
+        if (res.active && res.revision >= this.$root.calibrationRevision) {
+          this.calibId = 0;
+          this.$root.calibrationRevision = res.revision;
+        }
         this.calibrations = this.calibrations.filter(c => c.id !== this.selectedRow.id);
         this.selectedRow = null;
       } else {
@@ -328,7 +373,9 @@ window.CalibrationView = {
     // Изображения
     // ------------------------------------------------------------------
     async _loadImage(filename) {
+      const revision = this.$root.calibrationRevision;
       const res = await api.getImage(filename, '', 'calibration');
+      if (revision !== this.$root.calibrationRevision) return;
       if (res.ok && res.data) {
         this.calibImages[filename] = res.data;
       }

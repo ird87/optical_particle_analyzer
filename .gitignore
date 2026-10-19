@@ -10,3 +10,4 @@ analyzer/migrations/
 /dist/
 /build/
 *.spec.bak
+.build-venv/

@@ -3,11 +3,19 @@
  * Все методы возвращают Promise<dict> с полем ok:bool.
  */
 const api = (() => {
-  function call(method, ...args) {
-    return window.pywebview.api[method](...args);
+  async function call(method, ...args) {
+    try { return await window.pywebview.api[method](...args); }
+    catch (error) { return {ok:false, error:'Ошибка связи с приложением: ' + (error.message || error)}; }
   }
 
   return {
+    getSessionState:   context => call('get_session_state', context),
+    invalidateResearch: revision => call('invalidate_research', revision),
+    bindMicroscope: (name, index) => call('bind_microscope', name, index),
+    connectMicroscope: (name, context) => call('connect_microscope', name, context),
+    getCameraFrame: token => call('get_camera_frame', token),
+    disconnectCamera: token => call('disconnect_camera', token),
+    captureImage: (token, context, revision) => call('capture_image', token, context, revision),
     // Сессия
     newResearch:       ()                          => call('new_research'),
     newCalibration:    ()                          => call('new_calibration'),

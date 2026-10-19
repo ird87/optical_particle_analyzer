@@ -2,6 +2,8 @@ import shutil
 from pathlib import Path
 
 import cv2
+import math
+import numpy as np
 import pytest
 
 from backend import analyzer
@@ -99,3 +101,129 @@ def test_run_research_analysis(tmp_path, monkeypatch):
     assert 'averages' in result
     for folder in ('contrasted', 'contours', 'analyzed'):
         assert (res_dir / folder / '1.jpg').exists(), f'{folder}/1.jpg не создан'
+
+
+def test_pipeline_measures_unannotated_rectangle(tmp_path, monkeypatch):
+    for name in ('sources', 'contrasted', 'contours', 'analyzed'):
+        (tmp_path / name).mkdir()
+    image = np.full((160, 160, 3), 255, np.uint8)
+    cv2.rectangle(image, (40, 40), (80, 100), (0, 0, 0), -1)
+    cv2.imwrite(str(tmp_path / 'sources' / '1.png'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_RES_DIR', tmp_path)
+    monkeypatch.setattr(analyzer, 'increase_contrast', lambda image: image)
+    result = analyzer.run_research_analysis()['contours']
+    assert len(result) == 1
+    assert result[0]['area'] == 2400
+    assert result[0]['perimeter'] == 200
+    assert result[0]['width'] == 40
+    assert result[0]['length'] == 60
+    assert result[0]['dek'] == 55.28
+
+
+def test_rendering_does_not_change_measurements_or_merge_neighbors():
+    image = np.full((150, 150, 3), 255, np.uint8)
+    cv2.rectangle(image, (20, 30), (50, 90), (0, 0, 0), -1)
+    cv2.rectangle(image, (53, 30), (83, 90), (0, 0, 0), -1)
+    original = image.copy()
+    contours = analyzer.extract_particle_contours(image)
+    results, _ = analyzer.measure_contours(contours)
+    rendered = analyzer.draw_particle_contours(image, contours, results)
+    assert len(results) == 2
+    assert [r['area'] for r in results] == [1800, 1800]
+    assert np.array_equal(image, original)
+    assert not np.array_equal(image, rendered)
+    assert analyzer.measure_contours(contours)[0] == results
+
+
+def test_circle_metrics_and_squared_area_scale():
+    image = np.full((160, 160, 3), 255, np.uint8)
+    cv2.circle(image, (80, 80), 30, (0, 0, 0), -1)
+    contours = analyzer.extract_particle_contours(image)
+    normal, _ = analyzer.measure_contours(contours)
+    scaled, _ = analyzer.measure_contours(contours, calibration_coefficient=10)
+    assert normal[0]['area'] == pytest.approx(math.pi * 900, rel=.05)
+    assert normal[0]['dek'] == pytest.approx(60, rel=.03)
+    for key in ('perimeter', 'width', 'length', 'dek'):
+        assert scaled[0][key] == pytest.approx(normal[0][key] / 10, abs=.01)
+    assert scaled[0]['area'] == pytest.approx(normal[0]['area'] / 100, abs=.01)
+
+
+@pytest.mark.parametrize('brightness', [0, 255])
+def test_blank_noise_and_border_particles(brightness):
+    blank = np.full((100, 100, 3), brightness, np.uint8)
+    assert analyzer.extract_particle_contours(blank) == []
+    image = np.full((100, 100, 3), 255, np.uint8)
+    cv2.rectangle(image, (0, 10), (30, 60), (0, 0, 0), -1)
+    cv2.circle(image, (60, 60), 2, (0, 0, 0), -1)
+    assert analyzer.extract_particle_contours(image) == []
+
+
+@pytest.mark.parametrize('value', [0, -1, float('nan'), float('inf')])
+@pytest.mark.parametrize('parameter', ['calibration_coefficient', 'division_price_value'])
+def test_invalid_scale_rejected(value, parameter):
+    with pytest.raises(ValueError):
+        analyzer.measure_contours([], **{parameter: value})
+
+
+@pytest.mark.parametrize('xs', [[0,10,20,40,50,60], [0,10,20,25,30,40,50]])
+def test_scale_spacing_resists_missing_and_false_stripes(xs):
+    assert analyzer.estimate_scale_spacing(xs) == 10
+
+
+@pytest.mark.parametrize('xs', [[], [0,10], [0,4,14,39,79], [10,10,10]])
+def test_scale_spacing_rejects_insufficient_or_inconsistent_stripes(xs):
+    with pytest.raises(ValueError):
+        analyzer.estimate_scale_spacing(xs)
+
+
+def test_calibration_detects_known_pitch(tmp_path, monkeypatch):
+    image = np.full((200, 300, 3), 255, np.uint8)
+    for x in range(40, 261, 20):
+        cv2.line(image, (x, 40), (x, 160), (0, 0, 0), 2)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    assert analyzer.run_calibration_analysis()['coefficient'] == pytest.approx(20, abs=.5)
+
+
+def test_calibration_rejects_empty_image(tmp_path, monkeypatch):
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), np.full((150, 150, 3), 255, np.uint8))
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    with pytest.raises(ValueError):
+        analyzer.run_calibration_analysis()
+
+
+@pytest.mark.parametrize('foreground,background', [(80,210), (155,230), (30,100)])
+def test_otsu_measures_particle_at_different_exposures(foreground, background):
+    image = np.full((200, 200, 3), background, np.uint8)
+    cv2.rectangle(image, (60, 60), (100, 120), (foreground,) * 3, -1)
+    contours = analyzer.extract_particle_contours(analyzer.increase_contrast(image), 'otsu')
+    results, _ = analyzer.measure_contours(contours)
+    assert len(results) == 1
+    assert results[0]['area'] == pytest.approx(2400, rel=.06)
+
+
+def test_comparison_cli_writes_metrics_and_previews(tmp_path):
+    import subprocess
+    import sys
+    import json
+    result = subprocess.run([sys.executable, 'scripts/compare_segmentation.py', '--output', str(tmp_path)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    report = json.loads((tmp_path / 'metrics.json').read_text())
+    assert 'bright' in report['synthetic']
+    assert report['synthetic']['bright']['otsu']['count'] == 1
+    assert 'area_error' in report['synthetic']['bright']['otsu']
+    assert len(report['fixtures']) == 2
+    assert list(tmp_path.glob('*.png'))
+
+
+def test_pipeline_rejects_output_write_failure(tmp_path, monkeypatch):
+    for name in ('sources','contrasted','contours','analyzed'):
+        (tmp_path/name).mkdir()
+    image = np.full((100,100,3),255,np.uint8)
+    cv2.rectangle(image,(20,20),(60,60),(0,0,0),-1)
+    cv2.imwrite(str(tmp_path/'sources/1.jpg'),image)
+    monkeypatch.setattr(analyzer,'SESSION_RES_DIR',tmp_path)
+    monkeypatch.setattr(cv2,'imencode',lambda *args:(False,None))
+    with pytest.raises(OSError):
+        analyzer.run_research_analysis()

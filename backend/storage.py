@@ -1,6 +1,11 @@
 import base64
 import shutil
+import os
+import tempfile
 from pathlib import Path
+
+import cv2
+import numpy as np
 
 from backend.logger import logger, ROOT_DIR
 
@@ -61,6 +66,58 @@ def clear_session() -> None:
     clear_session_research()
     clear_session_calibration()
     logger.debug('Сессия полностью очищена')
+
+
+def clear_research_outputs() -> None:
+    for folder in ('contrasted', 'contours', 'analyzed'):
+        _recreate_dir(SESSION_RES_DIR / folder)
+
+
+def write_jpeg(path: Path, frame: np.ndarray) -> None:
+    """Encode before replacing an existing source, including on Unicode paths."""
+    write_image(path, frame, '.jpg')
+
+
+def read_image(path: Path):
+    raw = path.read_bytes()
+    return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR) if raw else None
+
+
+def write_image(path: Path, frame: np.ndarray, extension: str | None = None) -> None:
+    success, encoded = cv2.imencode(extension or path.suffix, frame)
+    if not success:
+        raise OSError('Не удалось закодировать снимок')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(encoded.tobytes())
+        os.replace(temporary, path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
+
+
+def clear_calibration_outputs() -> None:
+    for filename in _CALIBRATION_FILES[1:]:
+        (SESSION_CAL_DIR / filename).unlink(missing_ok=True)
+
+
+def save_session_frame(frame: np.ndarray, context: str) -> str:
+    if context == 'research':
+        folder = SESSION_RES_DIR / 'sources'
+        folder.mkdir(parents=True, exist_ok=True)
+        index = max((int(path.stem) for path in folder.iterdir() if path.stem.isdigit()), default=0) + 1
+        filename = f'{index}.jpg'
+        write_jpeg(folder / filename, frame)
+    elif context == 'calibration':
+        filename = 'sources.jpg'
+        write_jpeg(SESSION_CAL_DIR / filename, frame)
+        clear_calibration_outputs()
+    else:
+        raise ValueError('Неизвестный контекст съёмки')
+    return filename
 
 
 # ---------------------------------------------------------------------------

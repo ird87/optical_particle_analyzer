@@ -13,6 +13,7 @@
 <body>
 
 <div id="app" v-cloak>
+  <div v-if="appError" class="alert alert-danger mb-0">{{ appError }}</div>
 
   <!-- Шапка приложения -->
   <div class="app-header">
@@ -66,6 +67,7 @@
 <script src="js/bootstrap.bundle.min.js"></script>
 <script src="js/chart.umd.js"></script>
 <script src="api.js"></script>
+<script src="components/CameraPanel.js"></script>
 <script src="views/HomeView.js"></script>
 <script src="views/AnalyzeView.js"></script>
 <script src="views/ResultsView.js"></script>
@@ -86,6 +88,10 @@ const app = createApp({
       selectedResearch:           null,
       analyzeSelectedCalibration: null,
       analyzeResetKey:            0,
+      researchRevision: 0,
+      calibrationRevision: 0,
+      appError: '',
+      researchPending: false,
     };
   },
   computed: {
@@ -100,6 +106,42 @@ const app = createApp({
 
       const divs = await api.getDivisionPrices();
       if (divs.ok) this.divisionPrices = divs.division_prices;
+      const research = await api.getSessionState('research');
+      const calibration = await api.getSessionState('calibration');
+      if (research.ok) this.researchRevision = Math.max(this.researchRevision, research.revision);
+      if (calibration.ok) this.calibrationRevision = Math.max(this.calibrationRevision, calibration.revision);
+      if (!mics.ok || !divs.ok) this.appError = mics.error || divs.error || 'Не удалось загрузить настройки';
+    },
+    resetResearch(result) {
+      this.researchRevision = result.revision;
+      this.selectedResearch = null;
+      this.analyzeSelectedCalibration = null;
+      this.results = [];
+      this.averages = {};
+      this.analyzeResetKey++;
+    },
+    onResearchDeleted(identifier, result) {
+      if (!result.active || result.revision < this.researchRevision) return;
+      this.researchRevision = result.revision;
+      if (this.selectedResearch?.id === identifier) this.selectedResearch = {...this.selectedResearch, id:0};
+      this.results = [];
+      this.averages = {};
+      this.analyzeResetKey++;
+      if (this.currentTab === 'results') this.currentTab = 'analyze';
+    },
+    async invalidateResearch() {
+      if (this.researchPending) return;
+      this.researchPending = true;
+      this.results = [];
+      this.averages = {};
+      const result = await api.invalidateResearch(this.researchRevision);
+      if (result.ok) this.researchRevision = result.revision;
+      else {
+        const state = await api.getSessionState('research');
+        if (state.ok) this.researchRevision = state.revision;
+        this.appError = result.error;
+      }
+      this.researchPending = false;
     },
     formatDate(dateStr) {
       if (!dateStr) return '-';
@@ -116,10 +158,12 @@ app.component('AnalyzeView',     window.AnalyzeView);
 app.component('ResultsView',     window.ResultsView);
 app.component('CalibrationView', window.CalibrationView);
 app.component('SettingsView',    window.SettingsView);
+app.component('CameraPanel',     window.CameraPanel);
 
 let _mounted = false;
 function startApp() {
   if (_mounted) return;
+  if (!window.pywebview || !window.pywebview.api) return;
   _mounted = true;
   app.mount('#app');
 }

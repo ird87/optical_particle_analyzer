@@ -76,14 +76,30 @@ def measure_contours(
     return results, start_number
 
 
+def _draw_outlined_labels(image, labels, font_scale, thickness, outline_width):
+    if not labels:
+        return
+    # OpenCV 5 maps legacy text thickness to font weight. Two putText calls
+    # no longer create an outline, so expand the actual glyph mask instead.
+    mask = np.zeros(image.shape[:2], np.uint8)
+    for text, position in labels:
+        cv2.putText(mask, text, position, cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale, 255, thickness)
+    size = 2 * outline_width + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    outline = cv2.dilate(mask, kernel)
+    image[outline > 0] = (255, 255, 255)
+    for text, position in labels:
+        cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale, (0, 0, 0), thickness)
+
+
 def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None) -> np.ndarray:
     rendered = image.copy()
     cv2.drawContours(rendered, contours, -1, (0, 0, 255), 2)
-    for result in results or []:
-        position = (result['cx'], result['cy'])
-        for color, thickness in (((255, 255, 255), 6), ((0, 0, 0), 2)):
-            cv2.putText(rendered, str(result['contour_number']), position,
-                        cv2.FONT_HERSHEY_SIMPLEX, .5, color, thickness)
+    labels = [(str(result['contour_number']), (result['cx'], result['cy']))
+              for result in results or []]
+    _draw_outlined_labels(rendered, labels, font_scale=.5, thickness=2, outline_width=2)
     return rendered
 
 
@@ -255,8 +271,7 @@ def run_calibration_analysis() -> dict:
 
     label = f'{avg_distance:.3f}'
     pos = ((x_s + x_e) // 2, y_red - 10)
-    cv2.putText(final_img, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 3)
-    cv2.putText(final_img, label, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+    _draw_outlined_labels(final_img, [(label, pos)], font_scale=.7, thickness=1, outline_width=1)
 
     write_image(SESSION_CAL_DIR / 'calibrated.jpg', final_img)
 

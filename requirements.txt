@@ -1,5 +1,5 @@
 pywebview>=6.0
-opencv-python-headless>=4.10
+opencv-python-headless>=5.0,<6
 numpy>=2.0
 pytest>=8.0
 pyinstaller>=6.0

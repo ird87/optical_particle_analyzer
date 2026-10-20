@@ -1,5 +1,6 @@
 """Particle masks from original pixels, independent of annotations and calibration."""
 import math
+import heapq
 
 import cv2
 import numpy as np
@@ -100,24 +101,36 @@ def _foreground_mask(image, mode):
     return (dark if mode == 'dark' else light), 'gray_' + mode
 
 
-def _split_contour(contour, min_area):
-    area = cv2.contourArea(contour)
-    hull_area = cv2.contourArea(cv2.convexHull(contour))
-    # Convex particles, including long grains, should not be cut into pieces.
-    if not hull_area or area / hull_area > .96:
-        return [contour]
+def _split_contour(contour, foreground_mask):
     x, y, w, h = cv2.boundingRect(contour)
     offset = np.array([[[x - 2, y - 2]]], dtype=np.int32)
     mask = np.zeros((h + 4, w + 4), np.uint8)
     cv2.drawContours(mask, [contour - offset], -1, 255, -1)
+    # External contours fill enclosed background gaps. Keep the source mask
+    # so two bridges around a gap do not turn two grains into one solid mass.
+    mask[2:h + 2, 2:w + 2] &= foreground_mask[y:y + h, x:x + w]
+    return [part + offset for part in _split_mask(mask)]
+
+
+def _split_mask(mask):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(contours) != 1:
+        return contours
+    contour = contours[0]
+    hull_area = cv2.contourArea(cv2.convexHull(contour))
+    # Convex particles, including long grains, should not be cut into pieces.
+    if not hull_area or cv2.contourArea(contour) / hull_area > .96:
+        return [contour]
     distance = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     distance = cv2.GaussianBlur(distance, (3, 3), 0)
     maximum = float(distance.max())
     if maximum < 3:
         return [contour]
-    radius = max(3, int(maximum * .5))
+    radius = 3
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
-    peaks = np.uint8((distance >= cv2.dilate(distance, kernel) - 1e-5) & (distance >= .45 * maximum))
+    # A small attached fragment must have its own seed before area filtering;
+    # a threshold relative to the largest grain silently absorbs small lobes.
+    peaks = np.uint8((distance >= cv2.dilate(distance, kernel) - 1e-5) & (distance >= 3))
     count, labels = cv2.connectedComponents(peaks)
     candidates = []
     for label in range(1, count):
@@ -131,12 +144,12 @@ def _split_contour(contour, min_area):
         separate = True
         for previous, px, py in seeds:
             separation = math.hypot(sx - px, sy - py)
-            if separation < max(6, .8 * maximum):
+            if separation < max(6, .8 * min(height, previous)):
                 separate = False
                 break
             # Test the widest connecting path inside the particle. A straight
             # line can leave a single curved grain and falsely suggest a neck.
-            core = np.uint8(distance >= .65 * min(height, previous))
+            core = np.uint8(distance >= .8 * min(height, previous))
             _, core_labels = cv2.connectedComponents(core)
             if core_labels[sy, sx] == core_labels[py, px]:
                 separate = False
@@ -145,27 +158,43 @@ def _split_contour(contour, min_area):
             seeds.append((height, sx, sy))
     if len(seeds) < 2:
         return [contour]
-    # Grow from eroded interiors, not point seeds. Equal erosion depth keeps
-    # the boundary near the neck even when touching grains have different sizes.
-    core = np.uint8(distance >= .65 * min(seed[0] for seed in seeds))
-    _, core_labels = cv2.connectedComponents(core)
-    seed_labels = [int(core_labels[sy, sx]) for _, sx, sy in seeds]
-    if 0 in seed_labels or len(set(seed_labels)) != len(seeds):
-        return [contour]
-    core = np.uint8(np.isin(core_labels, seed_labels))
-    _, markers = cv2.distanceTransformWithLabels(1 - core, cv2.DIST_L2, 5,
-                                                 labelType=cv2.DIST_LABEL_CCOMP)
-    region_labels = [int(markers[sy, sx]) for _, sx, sy in seeds]
+    # Marker-controlled flooding of the distance surface stays inside the
+    # foreground and crosses narrow necks last. Euclidean nearest-core labels
+    # can jump across background gaps or cut a third small grain in half.
+    markers = _watershed_labels(mask, distance, seeds)
+    region_labels = range(1, len(seeds) + 1)
     parts = []
     for label in region_labels:
         region = np.uint8((markers == label) & (mask > 0)) * 255
         contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if len(contours) != 1 or cv2.contourArea(contours[0]) <= min_area:
+        if len(contours) != 1 or cv2.contourArea(contours[0]) <= 0:
             return [contour]
-        parts.append(contours[0] + offset)
-    if sum(cv2.contourArea(c) for c in parts) < .85 * area:
+        parts.append(contours[0])
+    if sum(cv2.contourArea(c) for c in parts) < .85 * np.count_nonzero(mask):
         return [contour]
     return parts
+
+
+def _watershed_labels(mask, distance, seeds):
+    labels = np.zeros(mask.shape, np.int32)
+    queue = []
+    order = 0
+    for label, (height, x, y) in enumerate(seeds, 1):
+        labels[y, x] = label
+        heapq.heappush(queue, (-height, order, label, y, x))
+        order += 1
+    height, width = mask.shape
+    neighbors = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+    while queue:
+        level, _, label, y, x = heapq.heappop(queue)
+        for dy, dx in neighbors:
+            ny, nx = y + dy, x + dx
+            if not (0 <= ny < height and 0 <= nx < width) or not mask[ny, nx] or labels[ny, nx]:
+                continue
+            labels[ny, nx] = label
+            order += 1
+            heapq.heappush(queue, (max(level, -float(distance[ny, nx])), order, label, ny, nx))
+    return labels
 
 
 def segment_particles(image, options=None):
@@ -184,9 +213,13 @@ def segment_particles(image, options=None):
         if x == 0 or y == 0 or x + w >= width or y + h >= height:
             excluded_border += 1
             continue
-        parts = _split_contour(contour, options['min_area_px']) if options['split_touching'] else [contour]
+        parts = _split_contour(contour, mask) if options['split_touching'] else [contour]
         split_count += len(parts) - 1
-        result.extend(parts)
+        for part in parts:
+            if cv2.contourArea(part) <= options['min_area_px']:
+                excluded_small += 1
+            else:
+                result.append(part)
     result.sort(key=lambda c: (cv2.boundingRect(c)[1], cv2.boundingRect(c)[0]))
     accepted = np.zeros_like(mask)
     if result:

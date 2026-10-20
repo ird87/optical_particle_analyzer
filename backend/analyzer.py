@@ -95,8 +95,11 @@ def _draw_outlined_labels(image, labels, font_scale, thickness, outline_width):
                     font_scale, (0, 0, 0), thickness)
 
 
-def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None) -> np.ndarray:
+def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None,
+                           *, excluded_contours: list[np.ndarray] | None = None) -> np.ndarray:
     rendered = image.copy()
+    if excluded_contours:
+        cv2.drawContours(rendered, excluded_contours, -1, (0, 165, 255), 2)
     cv2.drawContours(rendered, contours, -1, (0, 0, 255), 2)
     labels = [(str(result['contour_number']), (result['cx'], result['cy']))
               for result in results or []]
@@ -206,19 +209,22 @@ def run_research_analysis(
 
         if options is None:
             detected = extract_particle_contours(contrasted, threshold_mode)
+            border_contours = []
             diagnostic = {'method': 'legacy_' + threshold_mode, 'excluded_border': 0, 'excluded_small': 0, 'split_count': 0}
         else:
             segmented = segment_particles(image, options)
             detected = segmented['contours']
+            border_contours = segmented['border_contours']
             diagnostic = {key: segmented[key] for key in ('method', 'excluded_border', 'excluded_small', 'split_count')}
+            diagnostic['border_highlighted'] = bool(border_contours)
         diagnostics.append({'filename': src_path.name, 'count': len(detected), **diagnostic})
         contours, contour_number = measure_contours(
             detected, contour_number, calibration_coefficient, division_price_value,
         )
         rendering = contrasted if options is None else image
-        contoured = draw_particle_contours(rendering, detected)
+        contoured = draw_particle_contours(rendering, detected, excluded_contours=border_contours)
         write_image(contours_dir / src_path.name, contoured)
-        analyzed = draw_particle_contours(rendering, detected, contours)
+        analyzed = draw_particle_contours(rendering, detected, contours, excluded_contours=border_contours)
         write_image(analyzed_dir / src_path.name, analyzed)
 
         logger.info(f'{src_path.name}: найдено {len(contours)} контуров')

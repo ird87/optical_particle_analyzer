@@ -120,6 +120,7 @@ window.AnalyzeView = {
             <div v-if="selectedDiagnostic" class="small text-muted mt-1" role="status">
               {{ methodLabel(selectedDiagnostic.method) }} · найдено: {{ selectedDiagnostic.count }} · на краю: {{ selectedDiagnostic.excluded_border }} · ниже порога: {{ selectedDiagnostic.excluded_small }}<span v-if="selectedDiagnostic.split_count"> · разделений: {{ selectedDiagnostic.split_count }}</span>
             </div>
+            <div v-if="selectedDiagnostic?.border_highlighted && ['contours','analyzed'].includes(selectedFolder)" class="small text-muted mt-1">Оранжевым — фрагменты на краю кадра. Они не входят в измерения.</div>
           </div>
         </div>
       </div>

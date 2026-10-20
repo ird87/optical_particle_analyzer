@@ -43,8 +43,8 @@ const methods={
   execute_calibration:()=>ok({coefficient:20,marks_count:4,orientation:'horizontal',revision:state.calibrationRevision}),
   save_calibration:data=>{assert.strictEqual(data.revision,state.calibrationRevision);state.calibrations=[{...data,id:1}];return ok({id:1});},
   invalidate_research:revision=>{assert.strictEqual(revision,state.researchRevision);return ok({revision:++state.researchRevision});},
-  execute_research:(cal,options)=>{assert.strictEqual(cal,1);state.analysisOptions={...options};return ok({contours:[contour],averages,analysis_options:options,diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0}],revision:state.researchRevision});},
-  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,analysis_options:{...state.analysisOptions},analysis_diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0}],contours:[contour],average_perimeter:10,average_area:20,average_width:2,average_length:3,average_dek:5,date:'2026-10-19T10:00:00'};return ok({id:1});},
+  execute_research:(cal,options)=>{assert.strictEqual(cal,1);state.analysisOptions={...options};return ok({contours:[contour],averages,analysis_options:options,diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0,border_highlighted:true}],revision:state.researchRevision});},
+  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,analysis_options:{...state.analysisOptions},analysis_diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0,border_highlighted:true}],contours:[contour],average_perimeter:10,average_area:20,average_width:2,average_length:3,average_dek:5,date:'2026-10-19T10:00:00'};return ok({id:1});},
   load_research:()=>ok({research:state.saved,files:state.files,revision:++state.researchRevision}),
   delete_research:()=>{state.saved=null;return ok({active:true,revision:++state.researchRevision});},
 };
@@ -169,6 +169,10 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(state.analysisOptions.mode,'color','Selected mode must reach the bridge');
     await analyze.selectFile(analyze.files[0]);await settle();
     assert(analyze.$el.textContent.includes('По цвету фона'));
+    assert(analyze.$el.textContent.includes('Оранжевым — фрагменты на краю кадра'));
+    await analyze.changeFolder('sources');await settle();
+    assert(!analyze.$el.textContent.includes('Оранжевым — фрагменты на краю кадра'));
+    await analyze.changeFolder('analyzed');await settle();
     analyze.$el.querySelector('.analysis-settings input[type="checkbox"]').click();await settle();
     await analyze.analyzeAllFiles();await settle();
     assert.strictEqual(state.analysisOptions.split_touching,false,'The user must still be able to disable splitting');

@@ -135,6 +135,23 @@ def test_rendering_does_not_change_measurements_or_merge_neighbors():
     assert analyzer.measure_contours(contours)[0] == results
 
 
+def test_pipeline_outlines_edge_particles_without_measuring_them(tmp_path, monkeypatch):
+    for folder in ('sources', 'contrasted', 'contours', 'analyzed'):
+        (tmp_path / folder).mkdir()
+    image = np.full((200, 260, 3), (180, 90, 50), np.uint8)
+    cv2.circle(image, (70, 100), 25, (225, 230, 235), -1)
+    cv2.circle(image, (255, 100), 30, (225, 230, 235), -1)
+    cv2.imwrite(str(tmp_path / 'sources' / '1.png'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_RES_DIR', tmp_path)
+    result = analyzer.run_research_analysis(segmentation_options={})
+    assert len(result['contours']) == 1
+    assert result['diagnostics'][0]['excluded_border'] == 1
+    assert result['diagnostics'][0]['border_highlighted'] is True
+    rendered = cv2.imread(str(tmp_path / 'analyzed' / '1.png'))
+    assert np.any(np.all(rendered[:, 220:] == (0, 165, 255), axis=2))
+    assert not np.any(np.all(rendered[:, :120] == (0, 165, 255), axis=2))
+
+
 def test_particle_numbers_keep_white_outline_on_dark_background():
     image = np.zeros((80, 140, 3), np.uint8)
     rendered = analyzer.draw_particle_contours(image, [], [

@@ -309,6 +309,32 @@ thead.table-light th {
   .workspace-heading { flex-wrap: wrap; }
 }
 
+/* --- Исследование и результаты ----------------------------- */
+.workspace-column { min-width: 0; }
+.workspace-view-select { width: auto; max-width: 58%; }
+.analysis-workspace { --camera-image-height: clamp(130px, calc(100vh - 495px), 400px); }
+.analysis-preview {
+  width: 100%;
+  height: calc(var(--camera-image-height) + 36px);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.analysis-preview:disabled { cursor: default; }
+.analysis-file-list { height: var(--camera-image-height); overflow-y: auto; background: var(--navy-faint); }
+.analysis-file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: .5rem; }
+.results-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+.results-summary .small { font-size: .74rem; }
+.results-table-wrap { max-height: clamp(130px, calc(100vh - 465px), 560px); overflow: auto; }
+.results-particles { white-space: nowrap; }
+.results-particles thead th { position: sticky; top: 0; z-index: 1; }
+.results-particles td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.results-parameter { flex: 1 1 16rem; max-width: 26rem; }
+.histogram-bins { width: 6rem; }
+.research-histogram { height: clamp(130px, calc(100vh - 495px), 400px); position: relative; }
+@media (max-width: 767px) {
+  .results-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* --- Badges ----------------------------------------------- */
 .badge.bg-secondary {
   background-color: var(--c-muted) !important;

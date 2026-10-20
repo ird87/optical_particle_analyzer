@@ -44,7 +44,7 @@ const methods={
   save_calibration:data=>{assert.strictEqual(data.revision,state.calibrationRevision);state.calibrations=[{...data,id:1}];return ok({id:1});},
   invalidate_research:revision=>{assert.strictEqual(revision,state.researchRevision);return ok({revision:++state.researchRevision});},
   execute_research:cal=>{assert.strictEqual(cal,1);return ok({contours:[contour],averages,revision:state.researchRevision});},
-  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,date:'2026-10-19T10:00:00'};return ok({id:1});},
+  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,contours:[contour],average_perimeter:10,average_area:20,average_width:2,average_length:3,average_dek:5,date:'2026-10-19T10:00:00'};return ok({id:1});},
   load_research:()=>ok({research:state.saved,files:state.files,revision:++state.researchRevision}),
   delete_research:()=>{state.saved=null;return ok({active:true,revision:++state.researchRevision});},
 };
@@ -150,13 +150,32 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     panel=find(analyze.$.subTree,w.CameraPanel);
     await panel.connect();await settle();assert.strictEqual(panel.disabled,false);await panel.capture();await settle();await panel.capture();await settle();
     assert.strictEqual(analyze.files.length,2);
+    analyze.sourceMode='file';await settle();
+    assert(analyze.$el.querySelector('input[type="file"]'),'USB microscope must allow source files');
+    analyze.sourceMode='camera';await settle();
     assert.strictEqual(analyze.isSaveButtonDisabled,true);
     analyze.name='Experiment';analyze.employee='User';
     await analyze.analyzeAllFiles();await settle();
     assert.strictEqual(analyze.files.length,2);
     assert.strictEqual(root.results.length,1);
     assert.strictEqual(analyze.isSaveButtonDisabled,false);
-    await analyze.saveResearch();assert.strictEqual(analyze.researchId,1);
+    root.currentTab='results';await settle();
+    const results=component('ResultsView');
+    assert(results.$el.querySelector('.results-particles').textContent.includes('мкм²'));
+    assert(results.$el.textContent.includes('2 снимков · 1 частиц'));
+    analyze.name='Renamed experiment';analyze.employee='Updated user';await settle();
+    const saveResults=[...results.$el.querySelectorAll('button')].find(b=>b.textContent.trim()==='Сохранить исследование');
+    assert(!saveResults.disabled);saveResults.click();await settle();
+    assert.strictEqual(analyze.researchId,1);
+    assert.strictEqual(root.selectedResearch.name,'Renamed experiment');
+    assert(results.$el.textContent.includes('Updated user'));
+    assert(results.$el.textContent.includes('Сохранено'));
+    results.view='histogram';results.histogramBins=2.5;results.redrawAll();await settle();
+    assert(results.$el.querySelector('#histogram-error').textContent.includes('целое'));
+    assert.strictEqual(results.appliedBins,20);
+    results.histogramBins=5;results.redrawAll();await settle();assert.strictEqual(results.binsError,'');
+    results.view='table';
+
     await component('HomeView').loadResearch(1);await settle();
     assert.strictEqual(root.currentTab,'results');
     assert.strictEqual(root.results[0].area,20);
@@ -168,6 +187,13 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(analyze.files.length,2);
     await analyze.analyzeAllFiles();await analyze.saveResearch();
     assert.strictEqual(analyze.researchId,1);
+    analyze.name='Unsaved changes';root.currentTab='home';await settle();
+    const revisionBeforeCancel=root.researchRevision;
+    w.confirm=()=>false;
+    await component('HomeView').newResearch();await component('HomeView').loadResearch(1);
+    assert.strictEqual(root.researchRevision,revisionBeforeCancel);
+    assert.strictEqual(analyze.name,'Unsaved changes');
+    w.confirm=()=>true;
     root.currentTab='calibration';await settle();
     const microscopeSelect=calibration.$el.querySelector('#calibration-microscope');
     microscopeSelect.selectedIndex=2;microscopeSelect.dispatchEvent(new w.Event('change'));await settle();

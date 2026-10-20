@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 
-DEFAULT_OPTIONS = {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': False}
+DEFAULT_OPTIONS = {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': True}
 
 
 def validate_options(options=None):
@@ -78,7 +78,7 @@ def _foreground_mask(image, mode):
         separated = foreground.size and back.size and np.mean(foreground) - np.mean(back) >= 12
         colored_background = float(np.linalg.norm(background - 128)) >= 12
         if separated and np.mean(mask > 0) < .8 and (mode == 'color' or colored_background):
-            return mask, 'lab_background'
+            return mask, 'lab_background', (distance, max(12, threshold))
         if mode == 'color':
             raise ValueError('Недостаточно цветового контраста. Выберите светлые или тёмные частицы')
 
@@ -86,19 +86,62 @@ def _foreground_mask(image, mode):
     if mode == 'auto':
         corrected = _illumination_mask(gray)
         if corrected is not None:
-            return corrected, 'gray_corrected'
+            return corrected, 'gray_corrected', None
     _, light = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     dark = cv2.bitwise_not(light)
     low, high = gray[dark > 0], gray[light > 0]
     if not low.size or not high.size or float(np.mean(high)) - float(np.mean(low)) < 12:
-        return np.zeros_like(gray), 'gray_' + ('light' if mode == 'light' else 'dark')
+        return np.zeros_like(gray), 'gray_' + ('light' if mode == 'light' else 'dark'), None
     if mode == 'auto':
         # The material around the frame is a better background cue than the
         # smaller class: a single large particle may fill most of the image.
         dark_border = float(np.mean(_border_samples(dark[:, :, None]) > 0))
         light_border = 1 - dark_border
         mode = 'dark' if (dark_border, np.mean(dark > 0)) < (light_border, np.mean(light > 0)) else 'light'
-    return (dark if mode == 'dark' else light), 'gray_' + mode
+    return (dark if mode == 'dark' else light), 'gray_' + mode, None
+
+
+def _touches_border(contour, shape):
+    x, y, w, h = cv2.boundingRect(contour)
+    return x == 0 or y == 0 or x + w >= shape[1] or y + h >= shape[0]
+
+
+def _trim_border_halo(contour, mask, strength, threshold):
+    """Detach only a small, low-contrast fringe that reaches the frame edge."""
+    x, y, w, h = cv2.boundingRect(contour)
+    offset = np.array([[[x, y]]], np.int32)
+    region = np.zeros((h, w), np.uint8)
+    cv2.drawContours(region, [contour - offset], -1, 255, -1)
+    region &= mask[y:y + h, x:x + w]
+    edges = []
+    if x == 0:
+        edges.append((slice(None), 0))
+    if y == 0:
+        edges.append((0, slice(None)))
+    if x + w == mask.shape[1]:
+        edges.append((slice(None), -1))
+    if y + h == mask.shape[0]:
+        edges.append((-1, slice(None)))
+    for edge in edges:
+        contact = np.flatnonzero(region[edge])
+        # A thin weak rim along a broad clipped face is not a narrow halo.
+        if len(contact) and contact[-1] - contact[0] + 1 > max(2, .1 * min(w, h)):
+            return contour
+    scores = strength[y:y + h, x:x + w]
+    cutoff = threshold + max(3, .2 * (float(np.median(scores[region > 0])) - threshold))
+    _, labels = cv2.connectedComponents(np.uint8((region > 0) & (scores <= cutoff)))
+    edge_labels = np.unique(np.concatenate([labels[edge] for edge in edges]))
+    removed = np.isin(labels, edge_labels[edge_labels > 0])
+    # A substantial or strong border contact is evidence of a clipped grain.
+    # Do not reconstruct its missing area or trim it merely to make it fit.
+    if not removed.any() or np.count_nonzero(removed) > .03 * np.count_nonzero(region):
+        return contour
+    region[removed] = 0
+    candidates, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(candidates) != 1:
+        return contour
+    candidate = candidates[0] + offset
+    return contour if _touches_border(candidate, mask.shape) else candidate
 
 
 def _split_contour(contour, foreground_mask):
@@ -201,17 +244,19 @@ def segment_particles(image, options=None):
     options = validate_options(options)
     if image is None or image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
         raise ValueError('Нужно цветное изображение в формате BGR uint8')
-    mask, method = _foreground_mask(image, options['mode'])
+    mask, method, color_strength = _foreground_mask(image, options['mode'])
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    height, width = mask.shape
     result, excluded_border, excluded_small, split_count = [], 0, 0, 0
+    border_contours = []
     for contour in contours:
         if cv2.contourArea(contour) <= options['min_area_px']:
             excluded_small += 1
             continue
-        x, y, w, h = cv2.boundingRect(contour)
-        if x == 0 or y == 0 or x + w >= width or y + h >= height:
+        if _touches_border(contour, mask.shape) and color_strength is not None:
+            contour = _trim_border_halo(contour, mask, *color_strength)
+        if _touches_border(contour, mask.shape):
             excluded_border += 1
+            border_contours.append(contour)
             continue
         parts = _split_contour(contour, mask) if options['split_touching'] else [contour]
         split_count += len(parts) - 1
@@ -224,6 +269,6 @@ def segment_particles(image, options=None):
     accepted = np.zeros_like(mask)
     if result:
         cv2.drawContours(accepted, result, -1, 255, -1)
-    return {'contours': result, 'mask': accepted, 'method': method,
+    return {'contours': result, 'border_contours': border_contours, 'mask': accepted, 'method': method,
             'excluded_border': excluded_border, 'excluded_small': excluded_small,
             'split_count': split_count, 'options': options}

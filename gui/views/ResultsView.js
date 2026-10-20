@@ -8,6 +8,7 @@ window.ResultsView = {
           <button class="btn btn-sm btn-success" :disabled="$root.researchState?.saveDisabled || $root.researchState?.working" @click="$root.saveActiveResearch()">Сохранить исследование</button>
         </div>
       </div>
+      <div v-if="$root.researchContext?.acquisition?.simulated" class="alert alert-info py-1 small">Синтетическая серия симулятора — результаты для проверки программы.</div>
       <div v-if="$root.researchState?.error" class="alert alert-danger py-2" role="alert">{{ $root.researchState.error }}</div>
       <div v-if="!$root.results.length" class="workspace-empty border rounded p-3">Результаты отсутствуют или снимки изменились. Вернитесь к снимкам и выполните анализ.</div>
       <div v-else>
@@ -20,6 +21,7 @@ window.ResultsView = {
             <span>{{ $root.formatDate($root.selectedResearch?.date) }}</span>
           </div>
           <div class="small text-muted mt-1">{{ segmentationLabel }}</div>
+          <div v-if="$root.researchContext?.acquisition" class="small text-muted mt-1">Автоматическая съёмка · Z {{ $root.researchContext.acquisition.scale.z }} шагов · {{ ($root.researchContext.acquisition.scale.division_um / $root.researchContext.acquisition.scale.coefficient).toFixed(4) }} мкм/пикс · координаты кадров сохранены</div>
           <div v-if="$root.researchState?.status" class="small text-muted mt-1" role="status">{{ $root.researchState.status }}</div>
         </div>
         <div class="results-summary mb-3">

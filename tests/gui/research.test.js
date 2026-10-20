@@ -66,7 +66,7 @@ async function test(name,fn){try{await fn();passed++;}catch(e){failures.push(nam
   const s=editor({loadResearch:async()=>({ok:true,revision:2,research:{id:8,name:'Saved B',microscope:'B',calibration_id:2,contours:[{contour_number:1,area:20}]}}),
    getCalibrations:async()=>({ok:true,calibrations:[{id:2,name:'B scale',microscope:'B',coefficient:30,division_price:'1 мкм'}]}),
    listImages:async()=>({ok:true,revision:2,files:[]})},root);
-  await s.doLoadResearch({id:8});assert.strictEqual(invalidations,0);assert.strictEqual(root.results.length,1);assert.strictEqual(root.analyzeSelectedCalibration.id,2);
+  await s.doLoadResearch({id:8});assert.strictEqual(invalidations,0);assert.strictEqual(root.results.length,1);assert.strictEqual(root.analyzeSelectedCalibration.id,2);assert.strictEqual(s.analysisOptions.split_touching,true);
  });
  await test('reanalysis of unchanged saved inputs is unsaved until saved again',async()=>{
   let resets=0;const root=rootState();root.results=[{area:1}];root.analyzeSelectedCalibration={id:1,microscope:'A',coefficient:10};
@@ -121,6 +121,15 @@ async function test(name,fn){try{await fn();passed++;}catch(e){failures.push(nam
  await test('invalid minimum particle area prevents analysis and saving',async()=>{
   const root=rootState();root.analyzeSelectedCalibration={id:1,microscope:'A'};root.results=[{area:1}];const s=editor({},root);s.selectedMicroscope=root.microscopes[0];s.sourceMicroscopeName='A';s.files=[{name:'1.jpg'}];s.name='Sample';s.analysisOptions={mode:'auto',min_area_px:'',split_touching:false};
   assert.strictEqual(s.isAnalyzeButtonDisabled,true);assert.strictEqual(s.isSaveButtonDisabled,true);
+ });
+ await test('automatic acquisition restores its calibration even when session refresh wins completion race',async()=>{
+  const root=rootState();root.researchRevision=2;root.microscopes[0].type='AUTOMATIC';
+  const cal={id:7,name:'Z100',microscope:'A',coefficient:40,division_price:'10 мкм'};
+  const acquisition={profile:{id:'p',microscope:'A'},scale:{calibration_id:7,z:100,coefficient:40,division_um:10},frames:[{filename:'1.jpg',xyz:[0,0,100]}]};
+  const s=editor({listImages:async()=>({ok:true,revision:2,files:['1.jpg'],acquisition}),getCalibrations:async()=>({ok:true,calibrations:[cal]})},root);
+  s.selectedMicroscope=root.microscopes[0];s.calibrations=[cal];s.loadImage=async()=>{};
+  await s.refreshSession();await s.onStageScan({kind:'scan',status:'done',microscope:'A',result:{revision:2,calibration_id:7}});
+  assert.strictEqual(s.sourceMicroscopeName,'A');assert.strictEqual(root.analyzeSelectedCalibration.id,7);assert.strictEqual(s.isAnalyzeButtonDisabled,false);
  });
  for(const value of [0,'',2.5,101,-1])await test('histogram rejects invalid bin count '+JSON.stringify(value),async()=>{
   const s=load('gui/views/ResultsView.js');assert.throws(()=>s.createBins(1,10,value));

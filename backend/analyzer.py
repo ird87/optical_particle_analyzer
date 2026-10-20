@@ -95,8 +95,11 @@ def _draw_outlined_labels(image, labels, font_scale, thickness, outline_width):
                     font_scale, (0, 0, 0), thickness)
 
 
-def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None) -> np.ndarray:
+def draw_particle_contours(image: np.ndarray, contours: list[np.ndarray], results: list[dict] | None = None,
+                           *, excluded_contours: list[np.ndarray] | None = None) -> np.ndarray:
     rendered = image.copy()
+    if excluded_contours:
+        cv2.drawContours(rendered, excluded_contours, -1, (0, 165, 255), 2)
     cv2.drawContours(rendered, contours, -1, (0, 0, 255), 2)
     labels = [(str(result['contour_number']), (result['cx'], result['cy']))
               for result in results or []]
@@ -206,19 +209,22 @@ def run_research_analysis(
 
         if options is None:
             detected = extract_particle_contours(contrasted, threshold_mode)
+            border_contours = []
             diagnostic = {'method': 'legacy_' + threshold_mode, 'excluded_border': 0, 'excluded_small': 0, 'split_count': 0}
         else:
             segmented = segment_particles(image, options)
             detected = segmented['contours']
+            border_contours = segmented['border_contours']
             diagnostic = {key: segmented[key] for key in ('method', 'excluded_border', 'excluded_small', 'split_count')}
+            diagnostic['border_highlighted'] = bool(border_contours)
         diagnostics.append({'filename': src_path.name, 'count': len(detected), **diagnostic})
         contours, contour_number = measure_contours(
             detected, contour_number, calibration_coefficient, division_price_value,
         )
         rendering = contrasted if options is None else image
-        contoured = draw_particle_contours(rendering, detected)
+        contoured = draw_particle_contours(rendering, detected, excluded_contours=border_contours)
         write_image(contours_dir / src_path.name, contoured)
-        analyzed = draw_particle_contours(rendering, detected, contours)
+        analyzed = draw_particle_contours(rendering, detected, contours, excluded_contours=border_contours)
         write_image(analyzed_dir / src_path.name, analyzed)
 
         logger.info(f'{src_path.name}: найдено {len(contours)} контуров')
@@ -325,27 +331,11 @@ def _detect_calibration_scale(image: np.ndarray, contrasted: np.ndarray):
     return orientation, positions, marked
 
 
-def run_calibration_analysis() -> dict:
-    """
-    Обрабатывает session/calibration/sources.jpg.
-    Результаты пишет в contrasted.jpg, contours.jpg, calibrated.jpg.
-    Возвращает коэффициент в пикселях на деление, число и ориентацию штрихов.
-    """
-    source_path = SESSION_CAL_DIR / 'sources.jpg'
-    if not source_path.exists():
-        raise FileNotFoundError('sources.jpg не найден в сессии калибровки')
-
-    logger.info('Калибровка: начало обработки')
-
-    src = read_image(source_path)
-    if src is None:
-        raise ValueError('Не удалось прочитать sources.jpg')
-
+def calibrate_scale_image(src: np.ndarray):
+    """Measure a scale without touching either GUI session or files."""
     contrasted = increase_contrast(src)
-    write_image(SESSION_CAL_DIR / 'contrasted.jpg', contrasted)
 
     orientation, xs, contours_img = _detect_calibration_scale(src, contrasted)
-    write_image(SESSION_CAL_DIR / 'contours.jpg', contours_img)
 
     avg_distance = estimate_scale_spacing(xs)
     distances = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
@@ -369,8 +359,20 @@ def run_calibration_analysis() -> dict:
     label = f'{avg_distance:.3f}'
     _draw_outlined_labels(final_img, [(label, pos)], font_scale=.7, thickness=1, outline_width=1)
 
-    write_image(SESSION_CAL_DIR / 'calibrated.jpg', final_img)
 
-    coefficient = round(avg_distance, 3)
-    logger.info(f'Калибровка завершена: коэффициент={coefficient}, штрихов={len(xs)}, ориентация={orientation}')
-    return {'coefficient': coefficient, 'marks_count': len(xs), 'orientation': orientation}
+    result = {'coefficient': round(avg_distance, 3), 'marks_count': len(xs), 'orientation': orientation}
+    return result, {'contrasted': contrasted, 'contours': contours_img, 'calibrated': final_img}
+
+
+def run_calibration_analysis() -> dict:
+    source_path = SESSION_CAL_DIR / 'sources.jpg'
+    if not source_path.exists():
+        raise FileNotFoundError('sources.jpg не найден в сессии калибровки')
+    src = read_image(source_path)
+    if src is None:
+        raise ValueError('Не удалось прочитать sources.jpg')
+    result, outputs = calibrate_scale_image(src)
+    for name, image in outputs.items():
+        write_image(SESSION_CAL_DIR / (name + '.jpg'), image)
+    logger.info('Калибровка завершена: %s', result)
+    return result

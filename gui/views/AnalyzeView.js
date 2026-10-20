@@ -29,6 +29,7 @@ window.AnalyzeView = {
         </div>
       </div>
       <div v-else>
+        <div v-if="acquisition?.simulated" class="alert alert-info py-1 small">Синтетическая серия симулятора. Результаты предназначены только для проверки программы.</div>
         <div class="row g-2 mb-2">
           <div class="col-md-3"><label for="research-name" class="form-label">Название</label><input id="research-name" v-model="name" class="form-control" :disabled="working" placeholder="Название исследования"></div>
           <div class="col-md-2"><label for="research-employee" class="form-label">Сотрудник</label><input id="research-employee" v-model="employee" class="form-control" :disabled="working"></div>
@@ -78,6 +79,14 @@ window.AnalyzeView = {
           <div v-if="optionsError" class="small text-danger mt-1" role="alert">{{ optionsError }}</div>
           <div v-if="$root.results.length && !resultOptionsKnown" class="small text-muted mt-1">Настройки исходного анализа неизвестны. Выбранные настройки применятся при новом расчёте.</div>
         </details>
+        <stage-panel v-if="isAutomaticMicroscope" :key="selectedMicroscope.name" :microscope="selectedMicroscope"
+                     mode="scan" :active="$root.currentTab === 'analyze' && !isResearchLoadVisible" :disabled="working" @scan-updated="onStageScan"></stage-panel>
+        <details v-if="acquisition" class="small mb-2"><summary>Масштаб и координаты автоматической серии · Z {{ acquisition.scale.z }}</summary>
+          <p class="my-1">{{ (acquisition.scale.division_um / acquisition.scale.coefficient).toFixed(4) }} мкм/пикс · {{ acquisition.scale.width }} × {{ acquisition.scale.height }} пикселей</p>
+          <p v-if="currentFrameMetadata" class="my-1">Текущий кадр: X / Y / Z = {{ currentFrameMetadata.xyz.join(' / ') }} шагов · {{ $root.formatDate(currentFrameMetadata.captured_at) }}</p>
+          <button class="btn btn-sm btn-outline-secondary" @click="showAcquisitionScale">Показать сохранённую шкалу серии</button>
+          <img v-if="acquisitionScaleImage" :src="acquisitionScaleImage" alt="Сохранённый эталон масштаба серии" class="stage-preview img-thumbnail mt-1">
+        </details>
         <div class="row g-3 analysis-workspace">
           <div class="col-md-6 workspace-column">
             <div class="workspace-heading">
@@ -96,7 +105,7 @@ window.AnalyzeView = {
             <camera-panel v-else :microscope="selectedMicroscope" context="research"
                           :active="$root.currentTab === 'analyze' && !isResearchLoadVisible" :revision="$root.researchRevision"
                           :disabled="working" @capturing="capturePending = $event" @connected="refreshSession" @captured="onCaptured"></camera-panel>
-            <p v-if="isAutomaticMicroscope" class="small text-muted mb-0">Снимки по кнопке доступны. Автоматическое перемещение образца ещё не подключено.</p>
+            <p v-if="isAutomaticMicroscope" class="small text-muted mb-0">Для автоматической сетки используйте профиль Z выше. Для ручной съёмки начните отдельную серию.</p>
             <div class="small text-muted">После изменения снимков повторите анализ всей серии.</div>
           </div>
           <div class="col-md-6 workspace-column">
@@ -120,6 +129,7 @@ window.AnalyzeView = {
             <div v-if="selectedDiagnostic" class="small text-muted mt-1" role="status">
               {{ methodLabel(selectedDiagnostic.method) }} · найдено: {{ selectedDiagnostic.count }} · на краю: {{ selectedDiagnostic.excluded_border }} · ниже порога: {{ selectedDiagnostic.excluded_small }}<span v-if="selectedDiagnostic.split_count"> · разделений: {{ selectedDiagnostic.split_count }}</span>
             </div>
+            <div v-if="selectedDiagnostic?.border_highlighted && ['contours','analyzed'].includes(selectedFolder)" class="small text-muted mt-1">Оранжевым — фрагменты на краю кадра. Они не входят в измерения.</div>
           </div>
         </div>
       </div>
@@ -129,7 +139,7 @@ window.AnalyzeView = {
   `,
   data() {
     return {sessionSyncing:false,refreshGeneration:0,syncGeneration:0,imageRequest:0,
-      analysisOptions:{mode:'auto',min_area_px:100,split_touching:false},appliedOptions:null,analysisDiagnostics:[],resultOptionsKnown:false,
+      acquisition:null,acquisitionScaleImage:'',analysisOptions:{mode:'auto',min_area_px:100,split_touching:true},appliedOptions:null,analysisDiagnostics:[],resultOptionsKnown:false,
       analysisVersion:0,calibrationRequest:0,calibrationsLoading:false,calibrationError:false,researchId:0,name:'',employee:'',selectedMicroscope:null,calibrations:[],
       activeMicroscopeName:'',sourceMicroscopeName:'',sourceMode:'camera',capturePending:false,
       isResearchLoadVisible:false,loadResearches:[],selectedResearchRow:null,
@@ -140,7 +150,8 @@ window.AnalyzeView = {
       busy:false,analyzing:false,saving:false,uploading:false,errorMsg:'',successMsg:'',savedFingerprint:'',needsAnalysis:false};
   },
   computed: {
-    working() { return this.busy || this.calibrationsLoading || this.saving || this.uploading || this.capturePending || this.sessionSyncing || !!this.$root.researchPending; },
+    currentFrameMetadata() { return this.acquisition?.frames.find(f => f.filename === this.currentFile?.name) || null; },
+    working() { return this.busy || this.calibrationsLoading || this.saving || this.uploading || this.capturePending || this.sessionSyncing || !!this.$root.researchPending || !!this.$root.stageBusy; },
     analysisModeLabel() { return {auto:'Автоматически',light:'Светлые частицы',dark:'Тёмные частицы',color:'Цветной фон'}[this.analysisOptions.mode] || 'Выберите режим'; },
     optionsError() {
       const options = this.analysisOptions;
@@ -158,7 +169,7 @@ window.AnalyzeView = {
     },
     selectedDiagnostic() { return this.analysisDiagnostics.find(d => d.filename === this.currentFile?.name) || null; },
     availableCalibrations() { return this.selectedMicroscope ? this.calibrations.filter(c => c.microscope === this.selectedMicroscope.name) : []; },
-    isCalibrationSelectDisabled() { return !this.selectedMicroscope || this.working; },
+    isCalibrationSelectDisabled() { return !this.selectedMicroscope || this.working || !!this.acquisition; },
     calibrationPlaceholder() { return !this.selectedMicroscope ? 'Сначала выберите прибор' : (!this.availableCalibrations.length ? 'Нет калибровок для прибора' : 'Выберите калибровку'); },
     analysisDisabledReason() {
       if (this.working) return 'Дождитесь завершения операции';
@@ -210,7 +221,7 @@ window.AnalyzeView = {
   methods: {
     confirmDiscard() { return !this.hasUnsavedChanges || confirm('Есть несохранённые изменения исследования. Продолжить без сохранения?'); },
     clearResults() { this.$root.results = [];this.$root.averages = {};this.$root.researchContext = null;this.imageCache = {};this.successMsg = '';this.analysisDiagnostics = [];this.appliedOptions = null;this.resultOptionsKnown = false;this.needsAnalysis = this.files.length > 0; },
-    clearFrames() { ++this.imageRequest;this.files = [];this.currentFile = null;this.currentImage = '';this.imageLoading = false;this.lastUsedIndex = 0;this.sourceMicroscopeName = '';this.selectedFolder = 'sources';this.clearResults(); },
+    clearFrames() { ++this.imageRequest;this.files = [];this.currentFile = null;this.currentImage = '';this.imageLoading = false;this.lastUsedIndex = 0;this.acquisition = null;this.acquisitionScaleImage = '';this.sourceMicroscopeName = '';this.selectedFolder = 'sources';this.clearResults(); },
     async refreshSession() {
       const generation = ++this.refreshGeneration;this.sessionSyncing = true;
       try {
@@ -218,10 +229,17 @@ window.AnalyzeView = {
         if (generation !== this.refreshGeneration || (result.ok && result.revision < this.$root.researchRevision)) return;
         if (!result.ok) { this.errorMsg = result.error;return; }
         const changed = result.revision > this.$root.researchRevision;
-        this.$root.researchRevision = result.revision;
+        this.$root.researchRevision = result.revision;this.acquisition = result.acquisition || null;
         if (changed) { this.clearResults();this.selectedFolder = 'sources';this.currentImage = ''; }
         const currentName = this.currentFile?.name;
-        this.files = result.files.map(name => ({name}));this.lastUsedIndex = Math.max(0,...this.files.map(f => parseInt(f.name) || 0));
+        this.files = result.files.map(name => ({name}));
+        if (this.acquisition && this.files.length) {
+          const instrument = this.acquisition.profile.microscope;
+          this.sourceMicroscopeName = instrument;this.activeMicroscopeName = instrument;
+          const id = this.acquisition.scale.calibration_id;
+          this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === id && c.microscope === instrument) || null;
+        }
+        this.lastUsedIndex = Math.max(0,...this.files.map(f => parseInt(f.name) || 0));
         this.currentFile = this.files.find(f => f.name === currentName) || this.files[0] || null;
         if (this.currentFile) await this.loadImage(this.currentFile.name,this.selectedFolder);
         else this.currentImage = '';
@@ -252,6 +270,14 @@ window.AnalyzeView = {
       this.clearResults();this.selectedFolder = 'sources';this.currentImage = '';this.imageLoading = false;++this.imageRequest;
       await this.$root.invalidateResearch();
       if (this.currentFile) await this.loadImage(this.currentFile.name,'sources');
+    },
+    async showAcquisitionScale() { const r = await api.getAcquisitionScale();if (r.ok) this.acquisitionScaleImage = r.data;else this.errorMsg = r.error; },
+    async onStageScan(job) {
+      const id = job.result?.calibration_id || job.calibration_id;
+      const revision = job.result?.revision || job.revision || 0;
+      if (!id || revision < this.$root.researchRevision) return;
+      await this.fetchCalibrations();
+      await this.refreshSession();this.needsAnalysis = this.files.length > 0;
     },
     async onCaptured(result) {
       if (result.revision <= this.$root.researchRevision) return;
@@ -313,14 +339,15 @@ window.AnalyzeView = {
       const generation = ++this.syncGeneration;this.sessionSyncing = true;
       try {
         if (research) {
+          this.acquisition = research.acquisition || null;this.acquisitionScaleImage = '';
           this.researchId = research.id || 0;this.name = research.name || '';this.employee = research.employee || '';
           this.selectedMicroscope = this.$root.microscopes.find(m => m.name === research.microscope) || null;
           this.activeMicroscopeName = research.microscope;this.sourceMicroscopeName = research.microscope;
-          this.analysisOptions = research.analysis_options ? {...research.analysis_options} : {mode:'auto',min_area_px:100,split_touching:false};
+          this.analysisOptions = research.analysis_options ? {...research.analysis_options} : {mode:'auto',min_area_px:100,split_touching:true};
           this.appliedOptions = {...this.analysisOptions};this.resultOptionsKnown = !!research.analysis_options;
           this.analysisDiagnostics = Array.isArray(research.analysis_diagnostics) ? research.analysis_diagnostics : [];
           this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === research.calibration_id) || null;
-        } else { this.researchId = 0;this.name = '';this.employee = '';this.selectedMicroscope = null;this.activeMicroscopeName = '';this.sourceMicroscopeName = ''; }
+        } else { this.acquisition = null;this.researchId = 0;this.name = '';this.employee = '';this.selectedMicroscope = null;this.activeMicroscopeName = '';this.sourceMicroscopeName = ''; }
         this.sourceMode = this.isDefaultMicroscope ? 'file' : 'camera';this.imageCache = {};this.currentImage = '';this.files = [];this.currentFile = null;++this.imageRequest;
         const result = await api.listImages('research');
         if (generation !== this.syncGeneration || (result.ok && result.revision < this.$root.researchRevision)) return;
@@ -333,7 +360,7 @@ window.AnalyzeView = {
         if (generation !== this.syncGeneration) return;
         if (research) {
           const c = this.$root.analyzeSelectedCalibration;
-          this.$root.researchContext = {microscope:research.microscope,calibration:c ? {id:c.id,name:c.name} : null,fileCount:this.files.length,analysisOptions:research.analysis_options || null,diagnostics:this.analysisDiagnostics};
+          this.$root.researchContext = {microscope:research.microscope,calibration:this.acquisition ? {...this.acquisition.scale,id:this.acquisition.scale.calibration_id,name:c?.name || this.acquisition.profile.name,division_price:this.acquisition.scale.division_price} : (c ? {id:c.id,name:c.name} : null),acquisition:this.acquisition,fileCount:this.files.length,analysisOptions:research.analysis_options || null,diagnostics:this.analysisDiagnostics};
           this.savedFingerprint = research.id ? this.fingerprint : '';this.successMsg = research.id ? 'Сохранённое исследование открыто' : '';
         } else { this.savedFingerprint = '';this.successMsg = '';this.$root.researchContext = null; }
       } finally { if (generation === this.syncGeneration) this.sessionSyncing = false; }
@@ -404,11 +431,12 @@ window.AnalyzeView = {
       try {
         const result = await api.executeResearch(calibration.id,options);
         if (!result.ok || result.revision !== revision || revision !== this.$root.researchRevision || microscope !== this.selectedMicroscope?.name || !this.sameCalibration(calibration,this.$root.analyzeSelectedCalibration) || !this.sameOptions(options,this.analysisOptions)) { this.errorMsg = result.error || 'Снимки или настройки изменились. Повторите анализ';if (this.currentFile) await this.loadImage(this.currentFile.name,'sources');return; }
+        this.acquisition = result.acquisition || null;
         this.$root.results = result.contours;this.$root.averages = result.averages;this.needsAnalysis = false;this.analysisVersion++;
         this.$root.selectedResearch = {id:this.researchId,name:this.name,employee:this.employee,microscope,calibration_id:calibration.id,date:new Date().toISOString()};
         this.appliedOptions = {...(result.analysis_options || options)};this.resultOptionsKnown = true;
         this.analysisDiagnostics = Array.isArray(result.diagnostics) ? result.diagnostics : [];
-        this.$root.researchContext = {microscope,calibration,fileCount:this.files.length,revision,analysisOptions:this.appliedOptions,diagnostics:this.analysisDiagnostics};
+        this.$root.researchContext = {microscope,calibration,acquisition:this.acquisition,fileCount:this.files.length,revision,analysisOptions:this.appliedOptions,diagnostics:this.analysisDiagnostics};
         this.imageCache = {};this.selectedFolder = 'analyzed';if (this.currentFile) await this.loadImage(this.currentFile.name,'analyzed');
       } finally { this.busy = false;this.analyzing = false; }
     },

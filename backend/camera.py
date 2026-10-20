@@ -63,6 +63,16 @@ class CameraController:
                 self.close()
                 raise CameraError(str(error)) from error
 
+    def read_fresh(self, connection_id: str, discard: int = 4) -> np.ndarray:
+        """Discard the opening frame and queued frames after a completed move."""
+        with self._lock:
+            if connection_id != self._token or not connection_id:
+                raise CameraError('Подключение камеры устарело')
+            self._first_frame = None
+            for _ in range(discard):
+                self.read(connection_id)
+            return self.read(connection_id)
+
     def close(self, connection_id: str | None = None) -> None:
         with self._lock:
             if connection_id is not None and connection_id != self._token:

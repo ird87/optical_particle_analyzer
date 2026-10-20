@@ -105,7 +105,7 @@ def test_minimum_area_is_configurable():
 @pytest.mark.parametrize('options', [None, {}, {'mode': 'auto'}])
 def test_defaults_are_stable(options):
     result = validate_options(options)
-    assert result == {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': False}
+    assert result == {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': True}
 
 
 @pytest.mark.parametrize('options', [[], {'mode': 'bad'}, {'min_area_px': float('nan')},
@@ -211,3 +211,38 @@ def test_small_grain_between_two_large_grains_keeps_its_whole_body():
     assert len(result['contours']) == 3
     small = min(result['contours'], key=cv2.contourArea)
     assert cv2.contourArea(small) == pytest.approx(np.pi * 12 ** 2, rel=.2)
+
+
+@pytest.mark.parametrize('rotation', range(4))
+def test_weak_border_halo_does_not_discard_a_complete_particle(rotation):
+    image = np.full((220, 320, 3), (180, 90, 50), np.uint8)
+    cv2.circle(image, (270, 110), 35, (225, 230, 235), -1)
+    cv2.line(image, (300, 110), (319, 110), (194, 152, 129), 3)
+    image = np.rot90(image, rotation).copy()
+    original = image.copy()
+    result = segment_particles(image)
+    assert len(result['contours']) == 1
+    assert cv2.contourArea(result['contours'][0]) == pytest.approx(np.pi * 35 ** 2, rel=.04)
+    assert result['excluded_border'] == 0
+    np.testing.assert_array_equal(image, original)
+
+
+def test_strong_particle_body_at_the_edge_is_still_excluded():
+    image = np.full((220, 320, 3), (180, 90, 50), np.uint8)
+    cv2.circle(image, (310, 110), 35, (225, 230, 235), -1)
+    result = segment_particles(image)
+    assert result['contours'] == []
+    assert result['excluded_border'] == 1
+    assert len(result['border_contours']) == 1
+
+
+@pytest.mark.parametrize('rotation', range(4))
+def test_a_broad_clipped_edge_is_not_hidden_by_a_thin_low_contrast_strip(rotation):
+    image = np.full((220, 320, 3), (180, 90, 50), np.uint8)
+    cv2.circle(image, (310, 110), 35, (225, 230, 235), -1)
+    foreground = image[:, -2:, 0] == 225
+    image[:, -2:][foreground] = (194, 152, 129)
+    image = np.rot90(image, rotation).copy()
+    result = segment_particles(image)
+    assert result['contours'] == []
+    assert result['excluded_border'] == 1

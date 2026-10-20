@@ -22,6 +22,7 @@ RESEARCH_DIR     = DATA_DIR / 'research'
 CALIBRATION_DIR  = DATA_DIR / 'calibration'
 
 _RESEARCH_FOLDERS   = ('sources', 'contrasted', 'contours', 'analyzed')
+_RESEARCH_SNAPSHOTS = ('scale.jpg', 'scale-checked.jpg')
 _CALIBRATION_FILES  = ('sources.jpg', 'contrasted.jpg', 'contours.jpg', 'calibrated.jpg')
 
 
@@ -55,6 +56,8 @@ def _copy_file(src: Path, dst: Path) -> None:
 def clear_session_research() -> None:
     for folder in _RESEARCH_FOLDERS:
         _recreate_dir(SESSION_RES_DIR / folder)
+    for filename in _RESEARCH_SNAPSHOTS:
+        (SESSION_RES_DIR / filename).unlink(missing_ok=True)
     logger.debug('Сессия исследования очищена')
 
 
@@ -130,6 +133,8 @@ def save_research_files(research_id: int) -> None:
     _recreate_dir(dst_root)
     for folder in _RESEARCH_FOLDERS:
         _copy_dir(SESSION_RES_DIR / folder, dst_root / folder)
+    for filename in _RESEARCH_SNAPSHOTS:
+        _copy_file(SESSION_RES_DIR / filename, dst_root / filename)
     logger.debug(f'Файлы исследования id={research_id} сохранены')
 
 
@@ -138,6 +143,8 @@ def load_research_files(research_id: int) -> None:
     src_root = RESEARCH_DIR / str(research_id)
     for folder in _RESEARCH_FOLDERS:
         _copy_dir(src_root / folder, SESSION_RES_DIR / folder)
+    for filename in _RESEARCH_SNAPSHOTS:
+        _copy_file(src_root / filename, SESSION_RES_DIR / filename)
     logger.debug(f'Файлы исследования id={research_id} загружены в сессию')
 
 

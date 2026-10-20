@@ -35,6 +35,8 @@ window.CalibrationView = {
           </div>
         </div>
 
+        <stage-panel v-if="calibSelectedMicroscope?.type === 'AUTOMATIC'" :key="calibSelectedMicroscope.name"
+                     :microscope="calibSelectedMicroscope" mode="profile" :active="$root.currentTab === 'calibration' && !isCalibLoadVisible" :disabled="working"></stage-panel>
         <div class="calibration-resultbar border rounded p-2 mb-2">
           <div class="d-flex align-items-center gap-3 flex-wrap">
             <button class="btn btn-primary" :disabled="isCalculateDisabled" @click="runCalibration">{{ busy ? 'Расчёт…' : 'Рассчитать масштаб' }}</button>
@@ -186,7 +188,7 @@ window.CalibrationView = {
   },
 
   computed: {
-    working() { return this.busy || this.saving || this.sessionSyncing || this.capturePending; },
+    working() { return this.busy || this.saving || this.sessionSyncing || this.capturePending || !!this.$root.stageBusy; },
     sourceMatchesMicroscope() {
       return !!this.calibSelectedMicroscope && this.sourceMicroscopeName === this.calibSelectedMicroscope.name;
     },

@@ -14,6 +14,7 @@ import backend.storage as storage
 from backend.analyzer import run_calibration_analysis, run_research_analysis
 from backend.segmentation import validate_options
 from backend.camera import CameraController
+from backend.stage_api import StageApiMixin
 from backend.microscopes import MicroscopeRegistry, validate_camera_index
 from backend.logger import logger
 from backend.models import (
@@ -81,6 +82,8 @@ def _api_method(method):
     def call(self, *args, **kwargs):
         with self._lock:
             try:
+                if method.__name__ not in ('get_session_state','list_images','get_image','get_calibrations','get_calibration','get_researches','get_research','get_microscopes','get_division_prices','disconnect_camera','get_acquisition_scale'):
+                    self._idle_stage()
                 return {'ok': True, **method(self, *args, **kwargs)}
             except Exception as error:
                 logger.exception('Ошибка %s', method.__name__)
@@ -89,7 +92,7 @@ def _api_method(method):
     return call
 
 
-class Api:
+class Api(StageApiMixin):
     """All bridge mutations share a lock; camera ownership is scoped to a session."""
     def __init__(self):
         self._lock = RLock()
@@ -99,6 +102,7 @@ class Api:
         self._revisions = {'research': 0, 'calibration': 0}
         self._analysis = None
         self._owner = None
+        self._init_stage()
 
     def _context(self, context):
         if context not in self._revisions:
@@ -140,6 +144,7 @@ class Api:
     def new_research(self) -> dict:
         self._close_camera()
         storage.clear_session_research()
+        self._acquisition = None
         self.session['research_id'] = 0
         return {'revision': self._changed('research')}
 
@@ -158,6 +163,8 @@ class Api:
     @_api_method
     def upload_image(self, filename: str, b64_data: str, context: str) -> dict:
         self._context(context)
+        if context == 'research' and self._acquisition:
+            raise ValueError('Начните новую серию для ручных снимков')
         if not filename or Path(filename).name != filename or '/' in filename or '\\' in filename:
             raise ValueError('Некорректное имя файла')
         raw = base64.b64decode(b64_data.split(',', 1)[-1], validate=True)
@@ -181,12 +188,24 @@ class Api:
                 (storage.SESSION_CAL_DIR / name).unlink(missing_ok=True)
         else:
             (storage.SESSION_RES_DIR / 'sources' / filename).unlink(missing_ok=True)
+            if self._acquisition:
+                self._acquisition['frames'] = [f for f in self._acquisition['frames'] if f['filename'] != filename]
+                if not self._acquisition['frames']: self._acquisition = None
         return {'revision': self._changed(context)}
 
     @_api_method
     def list_images(self, context: str) -> dict:
         self._context(context)
-        return {'files': storage.list_session_images(context), 'revision': self._revisions[context]}
+        return {'files': storage.list_session_images(context), 'revision': self._revisions[context],
+                'acquisition': self._acquisition if context == 'research' else None}
+
+    @_api_method
+    def get_acquisition_scale(self) -> dict:
+        if not self._acquisition:
+            raise ValueError('В серии нет снимка масштаба')
+        path = storage.SESSION_RES_DIR / 'scale-checked.jpg'
+        if not path.exists(): path = storage.SESSION_RES_DIR / 'scale.jpg'
+        return {'data': storage.image_to_base64(path)}
 
     @_api_method
     def get_image(self, filename: str, folder: str, context: str) -> dict:
@@ -201,6 +220,7 @@ class Api:
     def execute_research(self, calibration_id: int, analysis_options: dict | None = None) -> dict:
         self._analysis = None
         cal = db.get_calibration(calibration_id) if calibration_id else None
+        self._assert_acquisition_scale(cal)
         coeff, division = _calibration_scale(cal)
         options = validate_options(analysis_options)
         result = run_research_analysis(coeff, division, segmentation_options=options)
@@ -210,7 +230,7 @@ class Api:
         revision = self._revisions['research']
         self._analysis = dict(result, options=options, revision=revision, calibration_id=cal.id,
                               calibration_signature=self._calibration_signature(cal.id))
-        return dict(result, revision=revision)
+        return dict(result, revision=revision, acquisition=self._acquisition)
 
     @_api_method
     def execute_calibration(self) -> dict:
@@ -302,7 +322,7 @@ class Api:
         db.save_contours(identifier, contours)
         storage.save_research_files(identifier)
         storage.write_research_metadata(identifier, {'version': 1, 'options': analysis.get('options'),
-                                                     'diagnostics': analysis.get('diagnostics', [])})
+                                                     'diagnostics': analysis.get('diagnostics', []), 'acquisition': self._acquisition})
         self.session['research_id'] = identifier
         return {'id': identifier}
 
@@ -319,6 +339,8 @@ class Api:
         self.session['research_id'] = research_id
         result = _res_to_dict(res, db.get_contours(research_id))
         metadata = storage.read_research_metadata(research_id)
+        self._acquisition = metadata.get('acquisition') or None
+        result['acquisition'] = self._acquisition
         options = metadata.get('options')
         try:
             options = validate_options(options) if options is not None else None
@@ -444,10 +466,18 @@ class Api:
     def capture_image(self, connection_id: str, context: str, revision: int) -> dict:
         self._check_revision(context, revision)
         self._camera_owner(connection_id, context)
+        if context == 'research' and self._acquisition:
+            raise ValueError('Начните новую серию для ручных снимков')
         frame = self.camera.read(connection_id)
         filename = storage.save_session_frame(frame, context)
         return {'filename': filename, 'revision': self._changed(context)}
 
     def shutdown(self) -> None:
+        with self._lock:
+            self._shutting_down = True
+            self.jobs.cancel()
+        self.stop_stage()
+        self.jobs.join()
+        self.stage.close()
         with self._lock:
             self._close_camera()

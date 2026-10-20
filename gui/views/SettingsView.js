@@ -43,11 +43,11 @@ window.SettingsView = {
                   <label for="microscope-type" class="form-label">Перемещение образца</label>
                   <select id="microscope-type" v-model="newType" class="form-select" :disabled="working">
                     <option value="MANUAL">Вручную, снимок по кнопке</option>
-                    <option value="AUTOMATIC">Автоматически — перемещение пока недоступно</option>
+                    <option value="AUTOMATIC">Автоматически · стол Arduino XYZ</option>
                   </select>
                 </div>
               </div>
-              <p v-if="(adding ? newType : selectedMicroscope.type) === 'AUTOMATIC'" class="small text-muted mb-2">Проверка камеры и калибровка доступны. Автоматическое перемещение образца ещё не подключено.</p>
+              <p v-if="(adding ? newType : selectedMicroscope.type) === 'AUTOMATIC'" class="small text-muted mb-2">Автоматическая съёмка использует стол Arduino XYZ и измеренный профиль масштаба Z.</p>
               <div class="d-flex flex-wrap align-items-end gap-2 mb-2">
                 <div class="camera-device-field">
                   <label for="microscope-camera" class="form-label">Камера</label>
@@ -66,6 +66,8 @@ window.SettingsView = {
                 <input aria-label="Индекс камеры вручную" type="number" min="0" step="1" v-model.number="bindingIndex" @change="onDeviceChange" class="form-control form-control-sm mt-2 camera-index-field" :disabled="working">
                 <span class="small text-muted">После переподключения USB индекс может измениться — найдите и проверьте камеру повторно.</span>
               </details>
+              <stage-panel v-if="selectedMicroscope?.type === 'AUTOMATIC' && !adding" :key="selectedMicroscope.name"
+                           :microscope="selectedMicroscope" mode="settings" :active="$root.currentTab === 'settings'" :disabled="working"></stage-panel>
               <camera-panel ref="cameraPreview" :key="bindingVersion"
                             :microscope="selectedMicroscope" :camera-index="bindingIndex"
                             context="settings" :active="$root.currentTab === 'settings'"
@@ -88,7 +90,7 @@ window.SettingsView = {
   },
   computed: {
     selectedMicroscope() { return this.$root.microscopes.find(m => m.name === this.selectedMicroscopeName) || null; },
-    working() { return this.scanning || this.saving; },
+    working() { return this.scanning || this.saving || !!this.$root.stageBusy; },
     cameraOptions() {
       const options = this.cameras.map(cam => ({...cam,label:cam.label + ' · индекс ' + cam.index}));
       if (this.bindingIndex != null && !options.some(cam => cam.index === this.bindingIndex)) {

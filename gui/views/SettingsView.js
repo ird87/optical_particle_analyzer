@@ -55,8 +55,6 @@ window.SettingsView = {
           <button class="btn btn-sm btn-primary" @click="bindCamera">Привязать камеру</button>
         </div>
         <div class="small text-muted mb-2">Индексы устройств показаны в результатах поиска ниже. После переподключения USB индекс может измениться.</div>
-        <camera-panel ref="savedCamera" :key="bindingVersion" :microscope="selectedMicroscope" context="settings"
-                      :active="$root.currentTab === 'settings'" :revision="0" @error="errorMsg = $event"></camera-panel>
       </div>
 
       <!-- ===== Подключение USB-микроскопа ===== -->
@@ -106,10 +104,6 @@ window.SettingsView = {
                 </select>
               </div>
               <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-secondary"
-                        :disabled="testing" @click="testCamera">
-                  {{ testing ? 'Захват...' : 'Тест' }}
-                </button>
                 <button class="btn btn-sm btn-success"
                         :disabled="!newName.trim()" @click="addMicroscope">
                   Добавить
@@ -122,15 +116,19 @@ window.SettingsView = {
             </div>
           </div>
 
-          <!-- Правая колонка: тестовый кадр -->
+          <!-- Правая колонка: видео и отдельный тестовый снимок -->
           <div class="col-md-7">
-            <div class="img-thumbnail d-flex justify-content-center align-items-center"
-                 style="width:100%;height:320px;background:#1a1a1a;">
-              <img v-if="testFrame" :src="testFrame"
-                   style="max-width:100%;max-height:100%;object-fit:contain;">
-              <span v-else class="text-secondary small">
-                Выберите камеру и нажмите «Тест»
-              </span>
+            <div v-if="selectedCamera || selectedMicroscope">
+              <h6>Проверка: {{ selectedCamera ? selectedCamera.label : selectedMicroscope.name }}</h6>
+              <p class="small text-muted">Начните видеопросмотр. Кнопка «Снимок» оставляет отдельный кадр для проверки качества изображения.</p>
+              <camera-panel ref="cameraPreview" :key="bindingVersion"
+                            :microscope="selectedCamera ? null : selectedMicroscope"
+                            :camera-index="selectedCamera ? selectedCamera.index : null"
+                            context="settings" :active="$root.currentTab === 'settings'"
+                            :revision="0" @error="errorMsg = $event"></camera-panel>
+            </div>
+            <div v-else class="text-muted small p-3 border rounded">
+              Выберите найденную камеру или нажмите «Настроить» у микроскопа.
             </div>
           </div>
 
@@ -153,8 +151,6 @@ window.SettingsView = {
       newName: '',
       newType: 'MANUAL',
 
-      testing:   false,
-      testFrame: '',
       errorMsg:  '',
     };
   },
@@ -166,14 +162,16 @@ window.SettingsView = {
   },
   methods: {
     async configureMicroscope(microscope) {
-      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
+      if (this.$refs.cameraPreview) await this.$refs.cameraPreview.stop();
+      this.selectedCamera = null;
       this.selectedMicroscopeName = microscope.name;
       this.bindingIndex = microscope.camera_index == null ? 0 : microscope.camera_index;
+      this.bindingVersion++;
       this.errorMsg = '';
     },
     async bindCamera() {
       if (!this.selectedMicroscope) return;
-      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
+      if (this.$refs.cameraPreview) await this.$refs.cameraPreview.stop();
       const result = await api.bindMicroscope(this.selectedMicroscope.name, this.bindingIndex);
       if (!result.ok) { this.errorMsg = result.error; return; }
       const mics = await api.getMicroscopes();
@@ -183,11 +181,12 @@ window.SettingsView = {
     },
     async scanCameras() {
       this.scanning  = true;
+      if (this.$refs.cameraPreview) await this.$refs.cameraPreview.stop();
       this.errorMsg  = '';
       this.cameras   = [];
       this.scanned   = false;
       this.selectedCamera = null;
-      this.testFrame = '';
+      this.selectedMicroscopeName = '';
 
       const res = await api.scanCameras();
       this.scanning = false;
@@ -199,27 +198,13 @@ window.SettingsView = {
       }
     },
 
-    selectCamera(cam) {
+    async selectCamera(cam) {
+      if (this.$refs.cameraPreview) await this.$refs.cameraPreview.stop();
       this.selectedCamera = cam;
-      this.testFrame = '';
+      this.selectedMicroscopeName = '';
+      this.bindingVersion++;
       this.newName   = cam.label;
       this.errorMsg  = '';
-    },
-
-    async testCamera() {
-      if (!this.selectedCamera) return;
-      if (this.$refs.savedCamera) await this.$refs.savedCamera.stop();
-      this.testing   = true;
-      this.testFrame = '';
-      this.errorMsg  = '';
-
-      const res = await api.getTestFrame(this.selectedCamera.index);
-      this.testing = false;
-      if (res.ok) {
-        this.testFrame = res.data;
-      } else {
-        this.errorMsg = res.error || 'Не удалось получить кадр.';
-      }
     },
 
     async addMicroscope() {
@@ -246,7 +231,6 @@ window.SettingsView = {
         this.selectedCamera = null;
         this.newName        = '';
         this.newType        = 'MANUAL';
-        this.testFrame      = '';
       } else {
         this.errorMsg = res.error || 'Ошибка сохранения микроскопа.';
       }
@@ -254,7 +238,7 @@ window.SettingsView = {
 
     async deleteMicroscope(m) {
       if (!confirm(`Удалить микроскоп «${m.name}»?`)) return;
-      if (this.selectedMicroscopeName === m.name && this.$refs.savedCamera) await this.$refs.savedCamera.stop();
+      if (this.selectedMicroscopeName === m.name && this.$refs.cameraPreview) await this.$refs.cameraPreview.stop();
       const res = await api.deleteCustomMicroscope(m.id);
       if (res.ok) {
         const mics = await api.getMicroscopes();

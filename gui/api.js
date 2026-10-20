@@ -13,6 +13,8 @@ const api = (() => {
     invalidateResearch: revision => call('invalidate_research', revision),
     bindMicroscope: (name, index) => call('bind_microscope', name, index),
     connectMicroscope: (name, context) => call('connect_microscope', name, context),
+    connectCamera: index => call('connect_camera', index),
+    captureTestFrame: token => call('capture_test_frame', token),
     getCameraFrame: token => call('get_camera_frame', token),
     disconnectCamera: token => call('disconnect_camera', token),
     captureImage: (token, context, revision) => call('capture_image', token, context, revision),

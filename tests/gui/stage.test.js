@@ -22,5 +22,11 @@ function component(){const c={...def.data(),microscope:{name:'М002',type:'AUTOM
  await c.refresh();assert(!c.$root.stageBusy);assert(calls.some(v=>v[0]==='scan-updated'));
  const oldCount=calls.length;await c.refresh();assert.strictEqual(calls.length,oldCount,'Completion event only once');
  c.active=false;await c.start('home');assert.strictEqual(calls.length,oldCount,'Hidden panel cannot start motion');
+ let resolve,scheduled=0;const pending=new Promise(r=>{resolve=r;});
+ const original=context.api.getStageState;context.api.getStageState=()=>pending;context.setTimeout=()=>{scheduled++;return 1;};
+ const disposed=component();const refresh=disposed.refresh();def.beforeUnmount.call(disposed);
+ resolve({ok:true,settings:{},stage:{},profiles:[],job:{active:false}});await refresh;
+ assert.strictEqual(scheduled,0,'Unmounted panel must not schedule bridge polling');
+ context.api.getStageState=original;
  console.log('stage GUI tests passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

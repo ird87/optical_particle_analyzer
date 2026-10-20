@@ -52,7 +52,7 @@ window.StagePanel = {
       <img v-if="preview" :src="preview" alt="Последний кадр автоматической съёмки или шкала Z" class="stage-preview img-thumbnail mt-2">
     </div>
   `,
-  data(){return {settings:{mode:'serial',port:'',board:'nano',driver:'a4988',travel_steps:[10000,10000,10000],steps_per_mm:[200,200,200],mechanics_confirmed:false,settle_ms:300,move_timeout_s:90},stage:{},profiles:[],job:{active:false},ports:[],connectedMicroscope:'',busy:false,error:'',preview:'',target:[0,0,0],profileName:'',positions:'',divisionPrice:'',profileId:'',z:null,grid:{x:0,y:0,columns:2,rows:2,dx:1000,dy:1000},timer:null,generation:0,reading:false,ownedJob:'',notifiedJob:'',settingsLoaded:false};},
+  data(){return {settings:{mode:'serial',port:'',board:'nano',driver:'a4988',travel_steps:[10000,10000,10000],steps_per_mm:[200,200,200],mechanics_confirmed:false,settle_ms:300,move_timeout_s:90},stage:{},profiles:[],job:{active:false},ports:[],connectedMicroscope:'',busy:false,error:'',preview:'',target:[0,0,0],profileName:'',positions:'',divisionPrice:'',profileId:'',z:null,grid:{x:0,y:0,columns:2,rows:2,dx:1000,dy:1000},timer:null,generation:0,reading:false,ownedJob:'',notifiedJob:'',settingsLoaded:false,disposed:false};},
   computed:{
     simulated(){return this.connected ? this.stage.mode==='simulator' : this.settings.mode==='simulator';},
     gridPitch(){return (this.grid.dx/this.settings.steps_per_mm[0]*1000).toFixed(1)+' × '+(this.grid.dy/this.settings.steps_per_mm[1]*1000).toFixed(1)+' мкм';},
@@ -70,11 +70,11 @@ window.StagePanel = {
     'microscope.name'(){++this.generation;this.settingsLoaded=false;this.profileId='';this.z=null;this.preview='';if(this.active)this.refresh();},
   },
   mounted(){if(this.active)this.refresh();},
-  beforeUnmount(){++this.generation;clearTimeout(this.timer);if(this.ownedJob && this.job.active)this.stop();},
+  beforeUnmount(){this.disposed=true;++this.generation;clearTimeout(this.timer);if(this.ownedJob && this.job.active)api.stopStage();},
   methods:{
     async refresh(){
       clearTimeout(this.timer);
-      if(this.reading || !this.microscope?.name)return;
+      if(this.disposed || this.reading || !this.microscope?.name)return;
       this.reading=true;const generation=this.generation;
       try{
         const res=await api.getStageState(this.microscope.name);
@@ -94,7 +94,7 @@ window.StagePanel = {
         }
       }finally{
         this.reading=false;
-        if(this.active || this.job.active)this.timer=setTimeout(()=>this.refresh(),400);
+        if(!this.disposed && (this.active || this.job.active))this.timer=setTimeout(()=>this.refresh(),400);
       }
     },
     async saveSettings(){if(this.locked)return;this.busy=true;this.error='';try{const r=await api.saveStageSettings(this.microscope.name,this.settings);if(!r.ok)this.error=r.error;else this.settings=r.settings;}finally{this.busy=false;await this.refresh();}},

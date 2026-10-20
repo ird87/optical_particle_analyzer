@@ -146,3 +146,22 @@ def test_saved_research_contains_independent_scale_photo(api):
     assert not (storage.SESSION_RES_DIR/'scale.jpg').exists()
     assert api.load_research(saved['id'])['ok']
     assert (storage.SESSION_RES_DIR/'scale.jpg').read_bytes()==original
+
+
+def test_camera_opens_only_after_settled_motion_and_closes_after_each_frame(api,monkeypatch):
+    setup_stage(api)
+    api.registry.bind('М002',0)
+    api.stage.settings['mode']='serial'  # Keep simulated mechanics, exercise real capture branch.
+    events=[]
+    class Camera:
+        def open(self,index):events.append(('open',api.stage.snapshot()['pos']));return 'token'
+        def read_fresh(self,token):events.append(('read',token));return 'frame'
+        def close(self,*args):events.append(('close',))
+    import backend.stage_api as module
+    monkeypatch.setattr(module,'CameraController',Camera)
+    camera,handle=api._job_camera('М002')
+    assert events==[], 'Camera must stay closed while the stage moves'
+    cancel=threading.Event()
+    api.stage.move(100,200,300);api._settle(cancel)
+    assert api._job_frame(camera,handle,'scan',300)=='frame'
+    assert events==[('open',[100,200,300]),('read','token'),('close',)]

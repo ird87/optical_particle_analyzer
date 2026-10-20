@@ -169,7 +169,7 @@ window.AnalyzeView = {
     },
     selectedDiagnostic() { return this.analysisDiagnostics.find(d => d.filename === this.currentFile?.name) || null; },
     availableCalibrations() { return this.selectedMicroscope ? this.calibrations.filter(c => c.microscope === this.selectedMicroscope.name) : []; },
-    isCalibrationSelectDisabled() { return !this.selectedMicroscope || this.working; },
+    isCalibrationSelectDisabled() { return !this.selectedMicroscope || this.working || !!this.acquisition; },
     calibrationPlaceholder() { return !this.selectedMicroscope ? 'Сначала выберите прибор' : (!this.availableCalibrations.length ? 'Нет калибровок для прибора' : 'Выберите калибровку'); },
     analysisDisabledReason() {
       if (this.working) return 'Дождитесь завершения операции';
@@ -232,7 +232,14 @@ window.AnalyzeView = {
         this.$root.researchRevision = result.revision;this.acquisition = result.acquisition || null;
         if (changed) { this.clearResults();this.selectedFolder = 'sources';this.currentImage = ''; }
         const currentName = this.currentFile?.name;
-        this.files = result.files.map(name => ({name}));this.lastUsedIndex = Math.max(0,...this.files.map(f => parseInt(f.name) || 0));
+        this.files = result.files.map(name => ({name}));
+        if (this.acquisition && this.files.length) {
+          const instrument = this.acquisition.profile.microscope;
+          this.sourceMicroscopeName = instrument;this.activeMicroscopeName = instrument;
+          const id = this.acquisition.scale.calibration_id;
+          this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === id && c.microscope === instrument) || null;
+        }
+        this.lastUsedIndex = Math.max(0,...this.files.map(f => parseInt(f.name) || 0));
         this.currentFile = this.files.find(f => f.name === currentName) || this.files[0] || null;
         if (this.currentFile) await this.loadImage(this.currentFile.name,this.selectedFolder);
         else this.currentImage = '';
@@ -268,10 +275,8 @@ window.AnalyzeView = {
     async onStageScan(job) {
       const id = job.result?.calibration_id || job.calibration_id;
       const revision = job.result?.revision || job.revision || 0;
-      if (!id || revision <= this.$root.researchRevision) return;
+      if (!id || revision < this.$root.researchRevision) return;
       await this.fetchCalibrations();
-      this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === id) || null;
-      this.sourceMicroscopeName = job.microscope;this.activeMicroscopeName = job.microscope;
       await this.refreshSession();this.needsAnalysis = this.files.length > 0;
     },
     async onCaptured(result) {

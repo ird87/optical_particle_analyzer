@@ -210,8 +210,16 @@ class StageApiMixin:
             if self.stage.snapshot().get('connected'): self.stage.stop()
             raise
 
-    def _job_frame(self, camera, token, kind, z):
-        return synthetic_frame(kind,z) if self.stage.settings['mode']=='simulator' else camera.read_fresh(token)
+    def _job_frame(self, camera, camera_index, kind, z):
+        if self.stage.settings['mode'] == 'simulator':
+            return synthetic_frame(kind, z)
+        # Start a new stream only AFTER MOVE/DONE and settling. A fixed number
+        # of discards alone cannot bound an unknown driver's pre-motion queue.
+        token = camera.open(camera_index)
+        try:
+            return camera.read_fresh(token)
+        finally:
+            camera.close(token)
 
     def _settle(self, cancel):
         if cancel.wait(self.stage.settings['settle_ms']/1000): check_cancel(cancel)
@@ -220,9 +228,7 @@ class StageApiMixin:
         if not state.get('connected') or not state.get('homed') or state.get('state')!='IDLE': raise ValueError('Позиция стола потеряна; снимок отменён')
 
     def _job_camera(self, name):
-        camera = CameraController()
-        token = None if self.stage.settings['mode']=='simulator' else camera.open(self.registry.get(name)['camera_index'])
-        return camera, token
+        return CameraController(), self.registry.get(name).get('camera_index')
 
     def _profile_job(self, name, params, binding, division, cancel, progress):
         identifier = uuid4().hex

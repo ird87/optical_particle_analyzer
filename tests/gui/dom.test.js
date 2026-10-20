@@ -143,6 +143,7 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert(calibration.$el.querySelector('#calibration-coefficient').disabled,'Automatic coefficient must be protected from accidental editing');
 
     root.currentTab='analyze';const analyze=component('AnalyzeView');
+    assert.strictEqual(analyze.$el.querySelector('.analysis-settings input[type="checkbox"]').checked,true,'Splitting must be enabled for new research');
     await analyze.fetchCalibrations();
     analyze.selectedMicroscope=root.microscopes.find(m=>m.name==='USB');
     await analyze.onMicroscopeChange();root.analyzeSelectedCalibration=analyze.calibrations[0];
@@ -168,6 +169,9 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(state.analysisOptions.mode,'color','Selected mode must reach the bridge');
     await analyze.selectFile(analyze.files[0]);await settle();
     assert(analyze.$el.textContent.includes('По цвету фона'));
+    analyze.$el.querySelector('.analysis-settings input[type="checkbox"]').click();await settle();
+    await analyze.analyzeAllFiles();await settle();
+    assert.strictEqual(state.analysisOptions.split_touching,false,'The user must still be able to disable splitting');
     root.currentTab='results';await settle();
     const results=component('ResultsView');
     assert(results.$el.querySelector('.results-particles').textContent.includes('мкм²'));
@@ -190,6 +194,7 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(root.results[0].area,20);
     assert.strictEqual(analyze.files.length,2);
     assert.strictEqual(analyze.analysisOptions.mode,'color','Loading must restore the settings used for measurement');
+    assert.strictEqual(analyze.analysisOptions.split_touching,false,'Loading must preserve an explicitly saved disabled setting');
     assert.strictEqual(analyze.analysisDiagnostics[0].excluded_small,2);
     assert.strictEqual(state.owner,null);
     await component('HomeView').deleteResearch(1);await settle();

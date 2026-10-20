@@ -129,7 +129,7 @@ window.AnalyzeView = {
   `,
   data() {
     return {sessionSyncing:false,refreshGeneration:0,syncGeneration:0,imageRequest:0,
-      analysisOptions:{mode:'auto',min_area_px:100,split_touching:false},appliedOptions:null,analysisDiagnostics:[],resultOptionsKnown:false,
+      analysisOptions:{mode:'auto',min_area_px:100,split_touching:true},appliedOptions:null,analysisDiagnostics:[],resultOptionsKnown:false,
       analysisVersion:0,calibrationRequest:0,calibrationsLoading:false,calibrationError:false,researchId:0,name:'',employee:'',selectedMicroscope:null,calibrations:[],
       activeMicroscopeName:'',sourceMicroscopeName:'',sourceMode:'camera',capturePending:false,
       isResearchLoadVisible:false,loadResearches:[],selectedResearchRow:null,
@@ -316,7 +316,7 @@ window.AnalyzeView = {
           this.researchId = research.id || 0;this.name = research.name || '';this.employee = research.employee || '';
           this.selectedMicroscope = this.$root.microscopes.find(m => m.name === research.microscope) || null;
           this.activeMicroscopeName = research.microscope;this.sourceMicroscopeName = research.microscope;
-          this.analysisOptions = research.analysis_options ? {...research.analysis_options} : {mode:'auto',min_area_px:100,split_touching:false};
+          this.analysisOptions = research.analysis_options ? {...research.analysis_options} : {mode:'auto',min_area_px:100,split_touching:true};
           this.appliedOptions = {...this.analysisOptions};this.resultOptionsKnown = !!research.analysis_options;
           this.analysisDiagnostics = Array.isArray(research.analysis_diagnostics) ? research.analysis_diagnostics : [];
           this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === research.calibration_id) || null;

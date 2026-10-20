@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 
-DEFAULT_OPTIONS = {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': False}
+DEFAULT_OPTIONS = {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': True}
 
 
 def validate_options(options=None):

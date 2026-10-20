@@ -66,7 +66,7 @@ async function test(name,fn){try{await fn();passed++;}catch(e){failures.push(nam
   const s=editor({loadResearch:async()=>({ok:true,revision:2,research:{id:8,name:'Saved B',microscope:'B',calibration_id:2,contours:[{contour_number:1,area:20}]}}),
    getCalibrations:async()=>({ok:true,calibrations:[{id:2,name:'B scale',microscope:'B',coefficient:30,division_price:'1 мкм'}]}),
    listImages:async()=>({ok:true,revision:2,files:[]})},root);
-  await s.doLoadResearch({id:8});assert.strictEqual(invalidations,0);assert.strictEqual(root.results.length,1);assert.strictEqual(root.analyzeSelectedCalibration.id,2);
+  await s.doLoadResearch({id:8});assert.strictEqual(invalidations,0);assert.strictEqual(root.results.length,1);assert.strictEqual(root.analyzeSelectedCalibration.id,2);assert.strictEqual(s.analysisOptions.split_touching,true);
  });
  await test('reanalysis of unchanged saved inputs is unsaved until saved again',async()=>{
   let resets=0;const root=rootState();root.results=[{area:1}];root.analyzeSelectedCalibration={id:1,microscope:'A',coefficient:10};

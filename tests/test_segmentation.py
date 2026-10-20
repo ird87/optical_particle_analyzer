@@ -105,7 +105,7 @@ def test_minimum_area_is_configurable():
 @pytest.mark.parametrize('options', [None, {}, {'mode': 'auto'}])
 def test_defaults_are_stable(options):
     result = validate_options(options)
-    assert result == {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': False}
+    assert result == {'mode': 'auto', 'min_area_px': 100.0, 'split_touching': True}
 
 
 @pytest.mark.parametrize('options', [[], {'mode': 'bad'}, {'min_area_px': float('nan')},

@@ -78,5 +78,14 @@ MICROSCOPES: list[Microscope] = [
 
 DIVISION_PRICES: list[DivisionPrice] = [
     DivisionPrice("1 мкм", 1),
+    DivisionPrice("2 мкм", 2),
+    DivisionPrice("5 мкм", 5),
     DivisionPrice("10 мкм", 10),
+    DivisionPrice("20 мкм", 20),
+    DivisionPrice("25 мкм", 25),
+    DivisionPrice("50 мкм", 50),
+    DivisionPrice("100 мкм", 100),
+    DivisionPrice("200 мкм", 200),
+    DivisionPrice("500 мкм", 500),
+    DivisionPrice("1 мм (1000 мкм)", 1000),
 ]

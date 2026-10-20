@@ -10,7 +10,8 @@ const errors=[];
 w.addEventListener('error',event=>errors.push(event.error));
 w.console.error=(...args)=>errors.push(args.join(' '));
 const state={microscopes:[{name:'По умолчанию',type:'DEFAULT',custom:false,camera_index:null},
-                         {name:'М001',type:'MANUAL',custom:false,camera_index:null}],
+                         {name:'М001',type:'MANUAL',custom:false,camera_index:null},
+                         {name:'М002',type:'AUTOMATIC',custom:false,camera_index:null}],
              calibrations:[],researchRevision:0,calibrationRevision:0,files:[],calFiles:[],owner:null,saved:null};
 let videoFrames=0;
 const contour={contour_number:1,perimeter:10,area:20,width:2,length:3,dek:5};
@@ -38,7 +39,7 @@ const methods={
     if(ctx==='research')state.files.push(filename);else state.calFiles=[filename];
     return ok({filename,revision:++state[ctx+'Revision']});
   },
-  execute_calibration:()=>ok({coefficient:20,revision:state.calibrationRevision}),
+  execute_calibration:()=>ok({coefficient:20,marks_count:4,orientation:'horizontal',revision:state.calibrationRevision}),
   save_calibration:data=>{assert.strictEqual(data.revision,state.calibrationRevision);state.calibrations=[{...data,id:1}];return ok({id:1});},
   invalidate_research:revision=>{assert.strictEqual(revision,state.researchRevision);return ok({revision:++state.researchRevision});},
   execute_research:cal=>{assert.strictEqual(cal,1);return ok({contours:[contour],averages,revision:state.researchRevision});},
@@ -70,6 +71,19 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     const root=w.document.getElementById('app')._vnode.component.proxy;
     const component=name=>find(root.$.subTree,w[name]);
     const calibration=component('CalibrationView');
+    const calibrationUpload=calibration.$el.querySelector('input[type="file"]');
+    assert(calibrationUpload,'Default microscope must retain image upload');
+    assert(!find(calibration.$.subTree,w.CameraPanel),'Default microscope must not require a camera');
+    calibration.calibSelectedMicroscope=root.microscopes.find(m=>m.name==='М001');
+    await settle();
+    const calibrationCamera=find(calibration.$.subTree,w.CameraPanel);
+    const cameraColumn=calibrationCamera.$el.closest('[class*="col-md-"]');
+    const previewColumn=calibration.$el.querySelector('.img-thumbnail').closest('[class*="col-md-"]');
+    assert.notStrictEqual(cameraColumn,previewColumn,'Calibration camera must have its own column beside the image preview');
+    assert.strictEqual(cameraColumn.parentElement,previewColumn.parentElement,'Calibration camera and image preview must occupy sibling columns');
+    assert(!calibration.$el.querySelector('input[type="file"]'),'Camera microscopes must use live capture');
+    calibration.calibSelectedMicroscope=root.microscopes.find(m=>m.name==='М002');await settle();
+    assert.strictEqual(find(calibration.$.subTree,w.CameraPanel).microscope.type,'AUTOMATIC','Automatic microscope must retain live calibration capture');
     calibration.calibSelectedMicroscope=root.microscopes.find(m=>m.name==='М001');
     root.currentTab='settings';
     const settings=component('SettingsView');
@@ -118,6 +132,7 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert(calibration.calibFileExists['sources.jpg']);
     await calibration.runCalibration();await calibration.saveCalibration();await settle();
     assert.strictEqual(calibration.calibId,1);
+    assert(calibration.$el.querySelector('.calibration-detection').textContent.includes('4'));
 
     root.currentTab='analyze';const analyze=component('AnalyzeView');
     await analyze.fetchCalibrations();

@@ -120,17 +120,20 @@ def analyze_contours(
 # Функции калибровки
 # ---------------------------------------------------------------------------
 
+def _dark_stroke_mask(gray: np.ndarray, vertical: bool) -> np.ndarray:
+    # Estimate the light background across the strokes. Subtracting the image
+    # retains the filled dark stroke even under slowly varying illumination;
+    # adaptive thresholding can instead split a broad stroke into two edges.
+    across = gray.shape[1] if vertical else gray.shape[0]
+    size = max(31, across // 3)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (size, 1) if vertical else (1, size))
+    smooth = cv2.GaussianBlur(gray, (5, 5), 0)
+    dark = cv2.morphologyEx(smooth, cv2.MORPH_BLACKHAT, kernel)
+    return cv2.threshold(dark, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+
 def find_vertical_lines(img_bgr: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    binary_inv = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        blockSize=31,
-        C=10,
-    )
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 7))
-    return cv2.morphologyEx(binary_inv, cv2.MORPH_CLOSE, kernel, iterations=1)
+    return _dark_stroke_mask(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY), vertical=True)
 
 
 def detect_black_strips_left_edges(binary: np.ndarray, draw_img: np.ndarray) -> list[int]:
@@ -230,11 +233,92 @@ def estimate_scale_spacing(xs: list[int]) -> float:
     return float(np.median(consistent))
 
 
+def _scale_masks(image: np.ndarray, contrasted: np.ndarray):
+    gray = cv2.cvtColor(contrasted, cv2.COLOR_BGR2GRAY)
+    yield _dark_stroke_mask(gray, vertical=True)
+    yield _dark_stroke_mask(gray, vertical=False)
+    # Individual channels retain contrast on a tinted transparent background
+    # which can disappear when the image is converted to grayscale.
+    for channel in (gray, *cv2.split(image)):
+        smooth = cv2.GaussianBlur(channel, (5, 5), 0)
+        yield cv2.threshold(smooth, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+    channels = image.astype(np.int16)
+    for a, b in ((0, 1), (0, 2), (1, 2)):
+        difference = channels[:, :, a] - channels[:, :, b]
+        for sign in (1, -1):
+            yield (difference * sign > 10).astype(np.uint8) * 255
+
+
+def _detect_calibration_scale(image: np.ndarray, contrasted: np.ndarray):
+    marked = contrasted.copy()
+    positions = detect_black_strips_left_edges(find_vertical_lines(contrasted), marked)
+    try:
+        estimate_scale_spacing(positions)
+        return 'vertical', sorted(set(positions)), marked
+    except ValueError:
+        pass
+
+    best = None
+    most_marks = len(set(positions))
+    for mask in _scale_masks(image, contrasted):
+        for orientation in ('vertical', 'horizontal'):
+            vertical = orientation == 'vertical'
+            along = image.shape[0] if vertical else image.shape[1]
+            across = image.shape[1] if vertical else image.shape[0]
+            length = max(15, along // 7)
+            closing = np.ones((9, 3) if vertical else (3, 9), np.uint8)
+            kernel = np.ones((length, 1) if vertical else (1, length), np.uint8)
+            joined = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, closing)
+            opened = cv2.morphologyEx(joined, cv2.MORPH_OPEN, kernel)
+            contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            strokes = []
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                position, thickness, span, start = (x, w, h, y) if vertical else (y, h, w, x)
+                # A clipped leading edge cannot define the distance accurately.
+                if position > 0 and span >= length and thickness < across * .15 and span / (thickness + 1) >= 4:
+                    strokes.append((position, start, start + span, contour))
+            # Compare strokes on the same section of the ruler, rather than
+            # treating unrelated scratches elsewhere in the image as ticks.
+            seen = set()
+            for stroke in strokes:
+                anchor = (stroke[1] + stroke[2]) / 2
+                group = [s for s in strokes if s[1] <= anchor <= s[2]]
+                coordinates = tuple(sorted({s[0] for s in group}))
+                if coordinates in seen:
+                    continue
+                seen.add(coordinates)
+                most_marks = max(most_marks, len(coordinates))
+                if not group or min(s[2] for s in group) - max(s[1] for s in group) < length / 2:
+                    continue
+                try:
+                    pitch = estimate_scale_spacing(list(coordinates))
+                except ValueError:
+                    continue
+                distances = np.diff(coordinates)
+                fraction = float(np.mean(np.abs(distances - pitch) <= .2 * pitch))
+                jitter = float(np.mean(np.abs(distances - pitch))) / pitch
+                coverage = float(np.median([s[2] - s[1] for s in group])) / along
+                score = (fraction, -jitter, len(coordinates), coverage)
+                if best is None or score > best[0]:
+                    best = (score, orientation, list(coordinates), [s[3] for s in group])
+    if best is None:
+        raise ValueError(
+            f'Не удалось выделить равномерную шкалу: кандидатов штрихов — {most_marks}. '
+            'Нужны не менее четырёх отчётливых штрихов с одинаковым шагом. '
+            'Расположите их горизонтально или вертикально и уменьшите блики.'
+        )
+    _, orientation, positions, contours = best
+    marked = contrasted.copy()
+    cv2.drawContours(marked, contours, -1, (0, 0, 255), cv2.FILLED)
+    return orientation, positions, marked
+
+
 def run_calibration_analysis() -> dict:
     """
     Обрабатывает session/calibration/sources.jpg.
     Результаты пишет в contrasted.jpg, contours.jpg, calibrated.jpg.
-    Возвращает {'coefficient': float}.
+    Возвращает коэффициент в пикселях на деление, число и ориентацию штрихов.
     """
     source_path = SESSION_CAL_DIR / 'sources.jpg'
     if not source_path.exists():
@@ -249,9 +333,7 @@ def run_calibration_analysis() -> dict:
     contrasted = increase_contrast(src)
     write_image(SESSION_CAL_DIR / 'contrasted.jpg', contrasted)
 
-    binary = find_vertical_lines(contrasted)
-    contours_img = contrasted.copy()
-    xs = detect_black_strips_left_edges(binary, contours_img)
+    orientation, xs, contours_img = _detect_calibration_scale(src, contrasted)
     write_image(SESSION_CAL_DIR / 'contours.jpg', contours_img)
 
     avg_distance = estimate_scale_spacing(xs)
@@ -260,21 +342,24 @@ def run_calibration_analysis() -> dict:
     final_img = contrasted.copy()
     h, w = final_img.shape[:2]
 
-    y_blue = int(h * 0.6)
-    cv2.line(final_img, (xs[0], y_blue), (xs[-1], y_blue), (255, 0, 0), 2)
-
     candidates = [i for i, distance in enumerate(distances) if abs(distance - avg_distance) <= .2 * avg_distance]
     mid = candidates[len(candidates) // 2]
     x_s, x_e = xs[mid], xs[mid + 1]
-    y_red = int(h * 0.5)
-    cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
-
+    if orientation == 'vertical':
+        y_blue, y_red = int(h * .6), int(h * .5)
+        cv2.line(final_img, (xs[0], y_blue), (xs[-1], y_blue), (255, 0, 0), 2)
+        cv2.line(final_img, (x_s, y_red), (x_e, y_red), (0, 0, 255), 2)
+        pos = ((x_s + x_e) // 2, y_red - 10)
+    else:
+        x_blue, x_red = int(w * .35), int(w * .45)
+        cv2.line(final_img, (x_blue, xs[0]), (x_blue, xs[-1]), (255, 0, 0), 2)
+        cv2.line(final_img, (x_red, x_s), (x_red, x_e), (0, 0, 255), 2)
+        pos = (x_red + 10, (x_s + x_e) // 2)
     label = f'{avg_distance:.3f}'
-    pos = ((x_s + x_e) // 2, y_red - 10)
     _draw_outlined_labels(final_img, [(label, pos)], font_scale=.7, thickness=1, outline_width=1)
 
     write_image(SESSION_CAL_DIR / 'calibrated.jpg', final_img)
 
     coefficient = round(avg_distance, 3)
-    logger.info(f'Калибровка завершена: коэффициент={coefficient}')
-    return {'coefficient': coefficient}
+    logger.info(f'Калибровка завершена: коэффициент={coefficient}, штрихов={len(xs)}, ориентация={orientation}')
+    return {'coefficient': coefficient, 'marks_count': len(xs), 'orientation': orientation}

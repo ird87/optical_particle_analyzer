@@ -11,44 +11,68 @@ window.CalibrationView = {
       <!-- Форма калибровки -->
       <div v-if="!isCalibLoadVisible">
         <div class="border p-2 pb-0 mb-2">
-          <div class="row mb-2">
+          <div class="row g-2 mb-2">
             <div class="col-md-6">
               <label class="form-label">Название:</label>
               <input type="text" v-model="calibName" class="form-control">
             </div>
-            <div class="col-md-6">
-              <label class="form-label">Цена деления:</label>
-              <select v-model="calibSelectedDivisionPrice" class="form-select">
-                <option v-for="p in $root.divisionPrices" :key="p.name" :value="p">{{ p.name }}</option>
-              </select>
-            </div>
-          </div>
-          <div class="row mb-3">
             <div class="col-md-6">
               <label class="form-label">Микроскоп:</label>
               <select v-model="calibSelectedMicroscope" class="form-select">
                 <option v-for="m in $root.microscopes" :key="m.name" :value="m">{{ m.name }}</option>
               </select>
             </div>
-            <div class="col-md-3">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-sm-6 col-md-5">
+              <label class="form-label">Цена деления:</label>
+              <select v-model="calibSelectedDivisionPrice" class="form-select">
+                <option v-for="p in $root.divisionPrices" :key="p.name" :value="p">{{ p.name }}</option>
+              </select>
+              <div class="form-text">Укажите расстояние между соседними штрихами.</div>
+            </div>
+            <div class="col-sm-6 col-md-4">
               <label class="form-label text-primary">K (коэффициент):</label>
               <input type="number" step="0.0001" v-model="calibCoefficient" class="form-control border-primary"
-                     placeholder="Будет рассчитан при калибровке">
+                     placeholder="После калибровки">
             </div>
-            <div class="col-md-3 d-flex align-items-end justify-content-end">
-              <button class="btn btn-success" @click="saveCalibration" :disabled="isSaveDisabled">Сохранить</button>
+            <div class="col-md-3 d-flex align-items-end">
+              <button class="btn btn-success w-100" @click="saveCalibration" :disabled="isSaveDisabled">Сохранить</button>
             </div>
           </div>
         </div>
 
-        <!-- Превью -->
+        <!-- Рабочая область: камера и превью рядом -->
         <div class="border p-3">
-          <div class="row">
-            <div class="col-md-4 d-flex flex-column align-items-center">
+          <div class="row g-3">
+            <div class="col-md-6 calibration-column">
+              <h6 class="mb-2">Получение изображения:</h6>
+
+              <!-- Загрузка файла (только для ручного микроскопа) -->
+              <div class="mb-3" v-if="isDefaultMicroscope">
+                <input type="file" accept="image/*" @change="handleFileSelect" class="form-control">
+              </div>
+
+              <camera-panel v-if="!isDefaultMicroscope" :microscope="calibSelectedMicroscope" context="calibration"
+                            :active="$root.currentTab === 'calibration'" :revision="$root.calibrationRevision"
+                            :disabled="busy || sessionSyncing" @connected="refreshSession" @captured="onCaptured" @error="errorMsg = $event"></camera-panel>
+
+              <button class="btn btn-primary w-100"
+                      :disabled="!calibFileExists['sources.jpg'] || !calibSelectedDivisionPrice || busy"
+                      @click="runCalibration">
+                {{ busy ? 'Выполняется...' : 'Калибровка' }}
+              </button>
+              <div v-if="calibDetection" class="calibration-detection small text-muted mt-2" aria-live="polite">
+                Распознано штрихов: {{ calibDetection.count }} ·
+                {{ calibDetection.orientation === 'horizontal' ? 'горизонтальные' : 'вертикальные' }}
+              </div>
+            </div>
+
+            <div class="col-md-6 calibration-column d-flex flex-column align-items-center">
               <h6 class="text-center mb-2">Превью изображения:</h6>
 
               <!-- Переключатели файлов -->
-              <div class="btn-group mb-3" style="width:350px;">
+              <div class="calibration-file-states d-flex flex-wrap gap-1 w-100 mb-3">
                 <button v-for="fname in calibFileStates" :key="fname"
                         class="btn btn-outline-primary"
                         :class="{ active: calibCurrentView === fname }"
@@ -59,8 +83,7 @@ window.CalibrationView = {
               </div>
 
               <!-- Картинка -->
-              <div class="img-thumbnail d-flex justify-content-center align-items-center mb-3"
-                   style="width:350px;height:300px;background:#f8f9fa;cursor:pointer;"
+              <div class="calibration-preview img-thumbnail d-flex justify-content-center align-items-center"
                    @click="openModal">
                 <img v-if="calibFileExists[calibCurrentView] && calibImages[calibCurrentView]"
                      :src="calibImages[calibCurrentView]"
@@ -70,22 +93,6 @@ window.CalibrationView = {
                 <span v-else class="text-muted">Нет изображения</span>
               </div>
 
-              <!-- Загрузка файла (только для ручного микроскопа) -->
-              <div class="mb-3" style="width:350px;" v-if="isDefaultMicroscope">
-                <input type="file" accept="image/*" @change="handleFileSelect" class="form-control">
-              </div>
-
-              <camera-panel v-if="!isDefaultMicroscope" :microscope="calibSelectedMicroscope" context="calibration"
-                            :active="$root.currentTab === 'calibration'" :revision="$root.calibrationRevision"
-                            :disabled="busy || sessionSyncing" @connected="refreshSession" @captured="onCaptured" @error="errorMsg = $event"></camera-panel>
-              <!-- Кнопка Калибровка -->
-              <div class="d-flex mb-3" style="width:350px;">
-                <button class="btn btn-primary flex-fill"
-                        :disabled="!calibFileExists['sources.jpg'] || !calibSelectedDivisionPrice || busy"
-                        @click="runCalibration">
-                  {{ busy ? 'Выполняется...' : 'Калибровка' }}
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -149,6 +156,7 @@ window.CalibrationView = {
       calibId:                   0,
       calibName:                 '',
       calibCoefficient:          '',
+      calibDetection:            null,
       calibSelectedMicroscope:   null,
       calibSelectedDivisionPrice: null,
 
@@ -206,6 +214,7 @@ window.CalibrationView = {
         if (result.revision <= this.$root.calibrationRevision) return;
         this.$root.calibrationRevision = result.revision;
         this.calibCoefficient = '';
+        this.calibDetection = null;
         for (const filename of this.calibFileStates) {
           this.calibFileExists[filename] = result.files.includes(filename);
           this.calibImages[filename] = '';
@@ -218,6 +227,7 @@ window.CalibrationView = {
       if (result.revision <= this.$root.calibrationRevision) return;
       this.$root.calibrationRevision = result.revision;
       this.calibCoefficient = '';
+      this.calibDetection = null;
       this.calibFileExists = {'sources.jpg':true,'contrasted.jpg':false,'contours.jpg':false,'calibrated.jpg':false};
       this.calibImages = {'sources.jpg':'','contrasted.jpg':'','contours.jpg':'','calibrated.jpg':''};
       this.calibCurrentView = 'sources.jpg';
@@ -233,6 +243,7 @@ window.CalibrationView = {
       this.calibId                   = 0;
       this.calibName                 = '';
       this.calibCoefficient          = '';
+      this.calibDetection            = null;
       this.calibSelectedMicroscope   = null;
       this.calibSelectedDivisionPrice = null;
       this.calibFileExists = { 'sources.jpg': false, 'contrasted.jpg': false, 'contours.jpg': false, 'calibrated.jpg': false };
@@ -271,10 +282,13 @@ window.CalibrationView = {
     async runCalibration() {
       this.busy = true;
       this.errorMsg = '';
+      this.calibCoefficient = '';
+      this.calibDetection = null;
       const res = await api.executeCalibration();
       this.busy = false;
       if (res.ok && res.revision === this.$root.calibrationRevision) {
         this.calibCoefficient = parseFloat(res.coefficient).toFixed(3);
+        if (res.marks_count) this.calibDetection = {count:res.marks_count,orientation:res.orientation};
         for (const fname of ['contrasted.jpg', 'contours.jpg', 'calibrated.jpg']) {
           this.calibFileExists[fname] = true;
           await this._loadImage(fname);
@@ -331,6 +345,7 @@ window.CalibrationView = {
       this.calibId          = c.id;
       this.calibName        = c.name;
       this.calibCoefficient = c.coefficient;
+      this.calibDetection = null;
       this.calibSelectedMicroscope   = this.$root.microscopes.find(m => m.name === c.microscope) || null;
       this.calibSelectedDivisionPrice = this.$root.divisionPrices.find(p => p.name === c.division_price) || null;
 

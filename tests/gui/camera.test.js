@@ -144,8 +144,10 @@ async function test(name, run) {
     const state = instance(context.window.CalibrationView,{$root:root});
     state._loadImage = async()=>{};
     state.calibCoefficient = 50;
+    state.calibDetection = {count:4,orientation:'horizontal'};
     await state.onCaptured({filename:'sources.jpg',revision:2});
     assert.strictEqual(state.calibCoefficient,'');
+    assert.strictEqual(state.calibDetection,null);
     assert.strictEqual(state.calibFileExists['calibrated.jpg'],false);
     assert.strictEqual(root.calibrationRevision,2);
   });

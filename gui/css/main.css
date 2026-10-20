@@ -228,6 +228,18 @@ thead.table-light th {
   background: #f0f1f9;
   border-color: var(--navy-border);
 }
+.calibration-column {
+  min-width: 0;
+}
+.calibration-file-states .btn {
+  flex: 1 1 7rem;
+}
+.calibration-preview {
+  width: 100%;
+  height: 360px;
+  background: #f8f9fa;
+  cursor: pointer;
+}
 
 /* --- Badges ----------------------------------------------- */
 .badge.bg-secondary {

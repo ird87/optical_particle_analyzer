@@ -195,6 +195,93 @@ def test_calibration_detects_known_pitch(tmp_path, monkeypatch):
     assert analyzer.run_calibration_analysis()['coefficient'] == pytest.approx(20, abs=.5)
 
 
+@pytest.mark.parametrize('orientation', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('red_background', [False, True])
+def test_calibration_detects_five_black_ticks_with_connected_ruler(tmp_path, monkeypatch, orientation, red_background):
+    image = np.full((320, 480, 3), (45, 80, 170) if red_background else (230, 230, 230), np.uint8)
+    cv2.line(image, (30, 0), (30, 319), (15, 15, 15), 6)
+    for y, length in zip([40, 100, 160, 220, 280], [280, 220, 220, 220, 280]):
+        cv2.line(image, (30, y), (length, y), (15, 15, 15), 6)
+    if orientation == 'vertical':
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    result = analyzer.run_calibration_analysis()
+    assert result['coefficient'] == pytest.approx(60, abs=1)
+    assert result['orientation'] == orientation
+    assert result['marks_count'] >= 4
+
+
+def test_calibration_handles_black_ticks_on_red_background_with_glare(tmp_path, monkeypatch):
+    image = np.full((480, 640, 3), (35, 80, 155), np.float32)
+    cv2.line(image, (20, 0), (20, 479), (10, 10, 10), 12)
+    for y, length in zip([-5, 115, 235, 355, 475], [330, 420, 330, 330, 330]):
+        cv2.line(image, (20, y), (length, y), (12, 12, 12), 22)
+    yy, xx = np.mgrid[:480, :640]
+    glare = .65 * np.exp(-((xx - 170) ** 2 + (yy - 410) ** 2) / (2 * 140 ** 2))
+    image = image * (1 - glare[:, :, None]) + 255 * glare[:, :, None]
+    image += np.random.default_rng(42).normal(0, 5, image.shape)
+    image = np.clip(image, 0, 255).astype(np.uint8)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    result = analyzer.run_calibration_analysis()
+    assert result['coefficient'] == pytest.approx(120, abs=2)
+    assert result['orientation'] == 'horizontal'
+
+
+def test_calibration_rejects_only_three_horizontal_ticks(tmp_path, monkeypatch):
+    image = np.full((240, 400, 3), 240, np.uint8)
+    for y in [40, 100, 160]:
+        cv2.line(image, (40, y), (320, y), (0, 0, 0), 6)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    with pytest.raises(ValueError):
+        analyzer.run_calibration_analysis()
+
+
+@pytest.mark.parametrize('orientation', ['horizontal', 'vertical'])
+@pytest.mark.parametrize('thickness', [26, 30, 36, 40])
+@pytest.mark.parametrize('count', [3, 4, 5])
+def test_broad_tick_edges_are_not_counted_as_separate_ticks(tmp_path, monkeypatch, orientation, thickness, count):
+    image = np.full((360, 480, 3), 240, np.uint8)
+    for y in range(40, 40 + 60 * count, 60):
+        cv2.line(image, (40, y), (380, y), (0, 0, 0), thickness)
+    if orientation == 'vertical':
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    if count < 4:
+        with pytest.raises(ValueError):
+            analyzer.run_calibration_analysis()
+    else:
+        result = analyzer.run_calibration_analysis()
+        assert result['coefficient'] == pytest.approx(60, abs=1)
+        assert result['marks_count'] == count
+        assert result['orientation'] == orientation
+
+
+@pytest.mark.parametrize('pitch', [6, 12])
+def test_calibration_detects_dense_horizontal_scale(tmp_path, monkeypatch, pitch):
+    image = np.full((240, 400, 3), 240, np.uint8)
+    cv2.line(image, (40, 0), (40, 239), (0, 0, 0), 2)
+    for y in range(30, 211, pitch):
+        cv2.line(image, (40, y), (310, y), (0, 0, 0), 1)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    assert analyzer.run_calibration_analysis()['coefficient'] == pytest.approx(pitch, abs=.5)
+
+
+@pytest.mark.parametrize('positions', [[40, 85, 170, 260], [40, 100, 160]])
+def test_irregular_red_ruler_is_not_accepted(tmp_path, monkeypatch, positions):
+    image = np.full((320, 480, 3), (30, 80, 170), np.uint8)
+    for y in positions:
+        cv2.line(image, (40, y), (310, y), (0, 0, 0), 6)
+    cv2.imwrite(str(tmp_path / 'sources.jpg'), image)
+    monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)
+    with pytest.raises(ValueError):
+        analyzer.run_calibration_analysis()
+
+
 def test_calibration_rejects_empty_image(tmp_path, monkeypatch):
     cv2.imwrite(str(tmp_path / 'sources.jpg'), np.full((150, 150, 3), 255, np.uint8))
     monkeypatch.setattr(analyzer, 'SESSION_CAL_DIR', tmp_path)

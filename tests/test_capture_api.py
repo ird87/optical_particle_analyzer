@@ -207,7 +207,7 @@ def test_failed_disk_replace_preserves_calibration_and_revision(api, monkeypatch
 def test_bridge_signatures_survive_error_and_lock_wrapper(api):
     import inspect
     assert list(inspect.signature(api.capture_image).parameters) == ['connection_id','context','revision']
-    assert inspect.getfullargspec(api.execute_research).args == ['self','calibration_id']
+    assert inspect.getfullargspec(api.execute_research).args == ['self','calibration_id','analysis_options']
 
 
 def test_delete_loaded_research_then_reanalyze_and_save_as_new(api):
@@ -303,3 +303,46 @@ def test_deleting_microscope_while_testing_unregistered_camera_keeps_preview(api
     deleted = api.delete_custom_microscope(api.registry.get('USB')['id'])
     assert deleted['ok'], deleted
     assert api.get_camera_frame(connected['connection_id'])['ok']
+
+
+def test_bright_particles_on_blue_background_save_with_analysis_options(api):
+    image = np.full((240, 320, 3), (180, 90, 50), np.uint8)
+    cv2.circle(image, (80, 90), 25, (225, 230, 235), -1)
+    cv2.rectangle(image, (180, 100), (230, 160), (230, 230, 230), -1)
+    _, encoded = cv2.imencode('.png', image)
+    uploaded = api.upload_image('1.jpg', base64.b64encode(encoded).decode(), 'research')
+    cal = db.save_calibration(Calibration('Scale', 'USB', 10, '1 мкм'))
+    options = {'mode': 'auto', 'min_area_px': 80, 'split_touching': True}
+    analyzed = api.execute_research(cal, options)
+    assert analyzed['ok'], analyzed
+    assert len(analyzed['contours']) == 2
+    # Rectangle is 50 x 60 pixels, calibration is 0.1 µm/pixel.
+    rectangle = max(analyzed['contours'], key=lambda c: c['area'])
+    assert rectangle['area'] == pytest.approx(30, rel=.04)
+    assert rectangle['width'] == pytest.approx(5, rel=.04)
+    assert rectangle['length'] == pytest.approx(6, rel=.04)
+    assert analyzed['diagnostics'][0]['method'] == 'lab_background'
+    assert analyzed['analysis_options']['min_area_px'] == 80
+    saved = api.save_research(payload(uploaded['revision'], cal))
+    assert saved['ok'], saved
+    restored = api.load_research(saved['id'])
+    assert restored['research']['analysis_options'] == analyzed['analysis_options']
+    assert restored['research']['analysis_diagnostics'] == analyzed['diagnostics']
+    storage.write_research_metadata(saved['id'], {'options': {'mode': 'invalid'}, 'diagnostics': [None, 1]})
+    restored = api.load_research(saved['id'])
+    assert restored['ok'] and len(restored['research']['contours']) == 2
+    assert restored['research']['analysis_options'] is None
+    assert restored['research']['analysis_diagnostics'] == []
+    (storage.RESEARCH_DIR / str(saved['id']) / 'analysis.json').unlink()
+    restored = api.load_research(saved['id'])
+    assert restored['ok'] and restored['research']['analysis_options'] is None
+    assert len(restored['research']['contours']) == 2
+
+
+def test_invalid_segmentation_options_invalidate_previous_calculation(api):
+    cal = db.save_calibration(Calibration('Scale', 'USB', 10, '1 мкм'))
+    state = connect(api)
+    captured = api.capture_image(state['connection_id'], 'research', state['revision'])
+    assert api.execute_research(cal)['ok']
+    assert not api.execute_research(cal, {'min_area_px': -1})['ok']
+    assert not api.save_research(payload(captured['revision'], cal))['ok']

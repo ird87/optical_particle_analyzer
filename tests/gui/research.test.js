@@ -106,6 +106,22 @@ async function test(name,fn){try{await fn();passed++;}catch(e){failures.push(nam
   const a=s.fetchCalibrations(),b=s.fetchCalibrations();second.resolve({ok:true,calibrations:[{id:1,microscope:'A',coefficient:50}]});await b;
   first.resolve({ok:true,calibrations:[{id:1,microscope:'A',coefficient:10}]});await a;assert.strictEqual(root.analyzeSelectedCalibration.coefficient,50);
  });
+ await test('changing particle settings clears old measurements and returns to the source',async()=>{
+  const root=rootState();root.results=[{area:1}];const s=editor({},root);s.files=[{name:'1.jpg'}];s.currentFile=s.files[0];s.selectedFolder='analyzed';s.currentImage='old-overlay';s.loadImage=async(_,folder)=>{s.currentImage=folder;};
+  s.analysisOptions={mode:'light',min_area_px:50,split_touching:false};await s.onAnalysisOptionsChange();
+  assert.strictEqual(root.results.length,0);assert.strictEqual(s.currentImage,'sources');assert.strictEqual(s.needsAnalysis,true);
+ });
+ await test('analysis sends particle settings and rejects late results for different settings',async()=>{
+  let sent;const pending=deferred(),root=rootState();root.analyzeSelectedCalibration={id:1,microscope:'A',coefficient:10};
+  const s=editor({executeResearch:(id,options)=>{sent=options;return pending.promise;}},root);s.selectedMicroscope=root.microscopes[0];s.sourceMicroscopeName='A';s.files=[{name:'1.jpg'}];
+  s.analysisOptions={mode:'color',min_area_px:40,split_touching:false};const run=s.analyzeAllFiles();s.analysisOptions.mode='dark';
+  pending.resolve({ok:true,revision:1,contours:[{area:5}],averages:{area:5}});await run;
+  assert.strictEqual(sent.mode,'color');assert.strictEqual(root.results.length,0);
+ });
+ await test('invalid minimum particle area prevents analysis and saving',async()=>{
+  const root=rootState();root.analyzeSelectedCalibration={id:1,microscope:'A'};root.results=[{area:1}];const s=editor({},root);s.selectedMicroscope=root.microscopes[0];s.sourceMicroscopeName='A';s.files=[{name:'1.jpg'}];s.name='Sample';s.analysisOptions={mode:'auto',min_area_px:'',split_touching:false};
+  assert.strictEqual(s.isAnalyzeButtonDisabled,true);assert.strictEqual(s.isSaveButtonDisabled,true);
+ });
  for(const value of [0,'',2.5,101,-1])await test('histogram rejects invalid bin count '+JSON.stringify(value),async()=>{
   const s=load('gui/views/ResultsView.js');assert.throws(()=>s.createBins(1,10,value));
  });

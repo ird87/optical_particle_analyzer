@@ -1,4 +1,5 @@
 import base64
+import json
 import shutil
 import os
 import tempfile
@@ -138,6 +139,32 @@ def load_research_files(research_id: int) -> None:
     for folder in _RESEARCH_FOLDERS:
         _copy_dir(src_root / folder, SESSION_RES_DIR / folder)
     logger.debug(f'Файлы исследования id={research_id} загружены в сессию')
+
+
+def write_research_metadata(research_id: int, metadata: dict) -> None:
+    destination = RESEARCH_DIR / str(research_id) / 'analysis.json'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=destination.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(metadata, stream, ensure_ascii=False, indent=2)
+        os.replace(temporary, destination)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
+
+
+def read_research_metadata(research_id: int) -> dict:
+    path = RESEARCH_DIR / str(research_id) / 'analysis.json'
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        logger.warning('Не удалось прочитать параметры анализа исследования %s', research_id)
+        return {}
 
 
 def delete_research_files(research_id: int) -> None:

@@ -19,6 +19,7 @@ window.ResultsView = {
             <span>Калибровка: {{ calibrationLabel }}</span>
             <span>{{ $root.formatDate($root.selectedResearch?.date) }}</span>
           </div>
+          <div class="small text-muted mt-1">{{ segmentationLabel }}</div>
           <div v-if="$root.researchState?.status" class="small text-muted mt-1" role="status">{{ $root.researchState.status }}</div>
         </div>
         <div class="results-summary mb-3">
@@ -62,6 +63,12 @@ window.ResultsView = {
       view:'table',activeParameter:'dek',histogramBins:20,appliedBins:20,binsError:'',page:1,pageSize:50};
   },
   computed: {
+    segmentationLabel() {
+      const options = this.$root.researchContext?.analysisOptions;
+      if (!options) return 'Настройки исходного выделения частиц не сохранены';
+      const mode = {auto:'Автоматически',dark:'Тёмные частицы',light:'Светлые частицы',color:'Цветной фон'}[options.mode] || options.mode;
+      return 'Выделение: ' + mode + ' · площадь > ' + options.min_area_px + ' пикс² · разделение ' + (options.split_touching ? 'включено' : 'выключено');
+    },
     fileCount() { return this.$root.researchState?.fileCount ?? this.$root.researchContext?.fileCount ?? 0; },
     calibrationLabel() {
       const c = this.$root.researchContext?.calibration;

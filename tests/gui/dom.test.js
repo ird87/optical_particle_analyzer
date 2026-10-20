@@ -43,8 +43,8 @@ const methods={
   execute_calibration:()=>ok({coefficient:20,marks_count:4,orientation:'horizontal',revision:state.calibrationRevision}),
   save_calibration:data=>{assert.strictEqual(data.revision,state.calibrationRevision);state.calibrations=[{...data,id:1}];return ok({id:1});},
   invalidate_research:revision=>{assert.strictEqual(revision,state.researchRevision);return ok({revision:++state.researchRevision});},
-  execute_research:cal=>{assert.strictEqual(cal,1);return ok({contours:[contour],averages,revision:state.researchRevision});},
-  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,contours:[contour],average_perimeter:10,average_area:20,average_width:2,average_length:3,average_dek:5,date:'2026-10-19T10:00:00'};return ok({id:1});},
+  execute_research:(cal,options)=>{assert.strictEqual(cal,1);state.analysisOptions={...options};return ok({contours:[contour],averages,analysis_options:options,diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0}],revision:state.researchRevision});},
+  save_research:data=>{assert.strictEqual(data.revision,state.researchRevision);state.saved={...data,id:1,analysis_options:{...state.analysisOptions},analysis_diagnostics:[{filename:state.files[0],count:1,method:'lab_background',excluded_border:1,excluded_small:2,split_count:0}],contours:[contour],average_perimeter:10,average_area:20,average_width:2,average_length:3,average_dek:5,date:'2026-10-19T10:00:00'};return ok({id:1});},
   load_research:()=>ok({research:state.saved,files:state.files,revision:++state.researchRevision}),
   delete_research:()=>{state.saved=null;return ok({active:true,revision:++state.researchRevision});},
 };
@@ -159,6 +159,15 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(analyze.files.length,2);
     assert.strictEqual(root.results.length,1);
     assert.strictEqual(analyze.isSaveButtonDisabled,false);
+    const modeSelect=analyze.$el.querySelector('#particle-mode');
+    modeSelect.value='color';modeSelect.dispatchEvent(new w.Event('change'));await settle();
+    assert.strictEqual(root.results.length,0,'Changing segmentation settings must clear old measurements');
+    assert.strictEqual(analyze.isSaveButtonDisabled,true);
+    assert.strictEqual(analyze.selectedFolder,'sources');
+    await analyze.analyzeAllFiles();await settle();
+    assert.strictEqual(state.analysisOptions.mode,'color','Selected mode must reach the bridge');
+    await analyze.selectFile(analyze.files[0]);await settle();
+    assert(analyze.$el.textContent.includes('По цвету фона'));
     root.currentTab='results';await settle();
     const results=component('ResultsView');
     assert(results.$el.querySelector('.results-particles').textContent.includes('мкм²'));
@@ -180,6 +189,8 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     assert.strictEqual(root.currentTab,'results');
     assert.strictEqual(root.results[0].area,20);
     assert.strictEqual(analyze.files.length,2);
+    assert.strictEqual(analyze.analysisOptions.mode,'color','Loading must restore the settings used for measurement');
+    assert.strictEqual(analyze.analysisDiagnostics[0].excluded_small,2);
     assert.strictEqual(state.owner,null);
     await component('HomeView').deleteResearch(1);await settle();
     assert.strictEqual(analyze.researchId,0);

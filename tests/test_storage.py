@@ -80,3 +80,19 @@ def test_image_to_base64():
     assert len(decoded) > 0
     # JPEG magic bytes
     assert decoded[:2] == b'\xff\xd8'
+
+
+def test_research_metadata_round_trip_and_old_research_without_metadata():
+    assert storage.read_research_metadata(1) == {}
+    metadata = {'version': 1, 'options': {'mode': 'color'}, 'diagnostics': []}
+    storage.write_research_metadata(1, metadata)
+    assert storage.read_research_metadata(1) == metadata
+    assert [p.name for p in (storage.RESEARCH_DIR / '1').iterdir()] == ['analysis.json']
+
+
+@pytest.mark.parametrize('content', ['{broken json', '[]', 'null'])
+def test_bad_metadata_does_not_prevent_loading_saved_measurements(content):
+    path = storage.RESEARCH_DIR / '1' / 'analysis.json'
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding='utf-8')
+    assert storage.read_research_metadata(1) == {}

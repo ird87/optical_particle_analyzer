@@ -228,6 +228,112 @@ thead.table-light th {
   background: #f0f1f9;
   border-color: var(--navy-border);
 }
+.calibration-column {
+  min-width: 0;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .65rem;
+}
+.workspace-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.camera-image-frame {
+  height: var(--camera-image-height, 260px);
+  min-width: 0;
+  overflow: hidden;
+  border-radius: .2rem;
+}
+.calibration-workspace {
+  --camera-image-height: clamp(140px, calc(100vh - 535px), 420px);
+}
+.calibration-preview {
+  width: 100%;
+  height: calc(var(--camera-image-height) + 82px);
+  background: #f8f9fa;
+  cursor: zoom-in;
+}
+.calibration-preview:disabled {
+  cursor: default;
+}
+.calibration-view-select {
+  width: auto;
+  max-width: 50%;
+}
+.calibration-scale {
+  min-width: 11rem;
+}
+.calibration-save {
+  flex: 0 1 27rem;
+}
+.calibration-save .form-control {
+  min-width: 0;
+}
+.calibration-advanced .form-control {
+  max-width: 16rem;
+}
+.camera-device-field {
+  flex: 1 1 16rem;
+}
+.camera-index-field {
+  max-width: 8rem;
+}
+.settings-workspace {
+  --camera-image-height: clamp(150px, calc(100vh - 440px), 340px);
+}
+.microscope-list .list-group-item {
+  text-align: left;
+}
+.microscope-list .active .small {
+  color: inherit;
+  opacity: .85;
+}
+.workspace-empty {
+  min-height: 16rem;
+  background: var(--navy-faint);
+}
+@media (max-width: 1100px) {
+  .calibration-save { flex-basis: 22rem; }
+}
+@media (max-width: 991px) {
+  .camera-test-panel .camera-image-frame { height: 180px; }
+}
+@media (max-width: 767px) {
+  .calibration-save { flex-basis: 100%; }
+  .workspace-heading { flex-wrap: wrap; }
+}
+
+/* --- Исследование и результаты ----------------------------- */
+.workspace-column { min-width: 0; }
+.workspace-view-select { width: auto; max-width: 58%; }
+.analysis-workspace { --camera-image-height: clamp(130px, calc(100vh - 495px), 400px); }
+.analysis-preview {
+  width: 100%;
+  height: calc(var(--camera-image-height) + 36px);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.analysis-preview:disabled { cursor: default; }
+.analysis-file-list { height: var(--camera-image-height); overflow-y: auto; background: var(--navy-faint); }
+.analysis-file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr)); gap: .5rem; }
+.results-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+.results-summary .small { font-size: .74rem; }
+.results-table-wrap { max-height: clamp(130px, calc(100vh - 465px), 560px); overflow: auto; }
+.results-particles { white-space: nowrap; }
+.results-particles thead th { position: sticky; top: 0; z-index: 1; }
+.results-particles td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.results-parameter { flex: 1 1 16rem; max-width: 26rem; }
+.histogram-bins { width: 6rem; }
+.research-histogram { height: clamp(130px, calc(100vh - 495px), 400px); position: relative; }
+@media (max-width: 767px) {
+  .results-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* --- Badges ----------------------------------------------- */
 .badge.bg-secondary {

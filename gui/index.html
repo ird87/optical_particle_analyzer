@@ -54,7 +54,7 @@
   <div class="px-3">
     <div class="tab-content border p-3 mt-2">
       <home-view        v-show="currentTab === 'home'"></home-view>
-      <analyze-view     v-show="currentTab === 'analyze'"></analyze-view>
+      <analyze-view ref="researchEditor" v-show="currentTab === 'analyze'"></analyze-view>
       <results-view     v-show="currentTab === 'results'"></results-view>
       <calibration-view v-show="currentTab === 'calibration'"></calibration-view>
       <settings-view    v-show="currentTab === 'settings'"></settings-view>
@@ -92,6 +92,8 @@ const app = createApp({
       calibrationRevision: 0,
       appError: '',
       researchPending: false,
+      researchContext: null,
+      researchState: {working:false,unsaved:false,saved:false,fileCount:0,saveDisabled:true},
     };
   },
   computed: {
@@ -100,6 +102,10 @@ const app = createApp({
     },
   },
   methods: {
+    saveActiveResearch() { return this.$refs.researchEditor.saveResearch(); },
+    newActiveResearch() { return this.$refs.researchEditor.createNewResearch(); },
+    openActiveResearch(id) { return this.$refs.researchEditor.doLoadResearch({id}); },
+    deleteActiveResearch(id) { return this.$refs.researchEditor.deleteResearch(id); },
     async init() {
       const mics = await api.getMicroscopes();
       if (mics.ok) this.microscopes = mics.microscopes;
@@ -115,6 +121,7 @@ const app = createApp({
     resetResearch(result) {
       this.researchRevision = result.revision;
       this.selectedResearch = null;
+      this.researchContext = null;
       this.analyzeSelectedCalibration = null;
       this.results = [];
       this.averages = {};
@@ -134,6 +141,7 @@ const app = createApp({
       this.researchPending = true;
       this.results = [];
       this.averages = {};
+      this.researchContext = null;
       const result = await api.invalidateResearch(this.researchRevision);
       if (result.ok) this.researchRevision = result.revision;
       else {

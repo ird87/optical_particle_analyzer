@@ -3,7 +3,7 @@ window.HomeView = {
     <div>
       <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
         <h5 class="mb-0">Исследования</h5>
-        <button class="btn btn-primary btn-sm" @click="newResearch">+ Новое исследование</button>
+        <button class="btn btn-primary btn-sm" :disabled="$root.researchState?.working" @click="newResearch">+ Новое исследование</button>
       </div>
 
       <div v-if="loading" class="text-muted">Загрузка...</div>
@@ -37,8 +37,8 @@ window.HomeView = {
             <td class="text-end">{{ r.average_perimeter }}</td>
             <td class="text-end">{{ r.average_area }}</td>
             <td class="text-end text-nowrap">
-              <button class="btn btn-sm btn-outline-primary me-1" @click="loadResearch(r.id)">Открыть</button>
-              <button class="btn btn-sm btn-outline-danger"       @click="deleteResearch(r.id)">Удалить</button>
+              <button class="btn btn-sm btn-outline-primary me-1" :disabled="$root.researchState?.working" @click="loadResearch(r.id)">Открыть</button>
+              <button class="btn btn-sm btn-outline-danger"       :disabled="$root.researchState?.working" @click="deleteResearch(r.id)">Удалить</button>
             </td>
           </tr>
         </tbody>
@@ -80,48 +80,19 @@ window.HomeView = {
     },
 
     async newResearch() {
-      const res = await api.newResearch();
-      if (!res.ok) { this.errorMsg = 'Ошибка создания нового исследования.'; return; }
-
-      this.$root.resetResearch(res);
-
-      this.$root.currentTab = 'analyze';
+      const ok = await this.$root.newActiveResearch();
+      if (ok) this.$root.currentTab = 'analyze';
+      else this.errorMsg = this.$root.researchState?.error || '';
     },
-
     async loadResearch(id) {
-      const res = await api.loadResearch(id);
-      if (!res.ok) { this.errorMsg = 'Не удалось загрузить исследование.'; return; }
-
-      const r = res.research;
-
-      this.$root.researchRevision = res.revision;
-      this.$root.selectedResearch = r;
-      this.$root.analyzeResetKey++;
-      this.$root.results          = r.contours || [];
-      this.$root.averages         = {
-        perimeter: r.average_perimeter,
-        area:      r.average_area,
-        width:     r.average_width,
-        length:    r.average_length,
-        dek:       r.average_dek,
-      };
-      this.$root.analyzeSelectedCalibration = r.calibration_id
-        ? { id: r.calibration_id }
-        : null;
-
-      // Результаты есть — сразу открываем вкладку результатов
-      this.$root.currentTab = (r.contours && r.contours.length > 0) ? 'results' : 'analyze';
+      const ok = await this.$root.openActiveResearch(id);
+      if (ok) this.$root.currentTab = this.$root.results.length ? 'results' : 'analyze';
+      else this.errorMsg = this.$root.researchState?.error || '';
     },
-
     async deleteResearch(id) {
-      if (!confirm('Удалить исследование? Это действие необратимо.')) return;
-      const res = await api.deleteResearch(id);
-      if (res.ok) {
-        this.$root.onResearchDeleted(id, res);
-        this.researches = this.researches.filter(r => r.id !== id);
-      } else {
-        this.errorMsg = 'Не удалось удалить исследование.';
-      }
+      const ok = await this.$root.deleteActiveResearch(id);
+      if (ok) this.researches = this.researches.filter(r => r.id !== id);
+      else this.errorMsg = this.$root.researchState?.error || '';
     },
   },
 };

@@ -4,36 +4,40 @@ window.CameraPanel = {
     disabled: {type:Boolean, default:false},
     cameraIndex: {type:Number, default:null},
   },
-  emits: ['captured', 'connected', 'error'],
+  emits: ['captured', 'capturing', 'connected', 'error'],
   template: `
-    <div class="border rounded p-2 mb-2">
-      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <div class="camera-panel border rounded p-2 mb-2" :class="{'camera-test-panel':context === 'settings'}">
+      <div class="camera-toolbar d-flex flex-wrap gap-2 align-items-center mb-2">
         <button class="btn btn-sm btn-outline-primary" @click="connect"
                 :disabled="busy || !active || disabled || deviceIndex == null || !!connectionId">
-          {{ busy ? 'Подключение…' : (context === 'settings' ? 'Начать видеопросмотр' : 'Подключить камеру') }}
+          {{ busy ? 'Подключение…' : 'Включить видео' }}
         </button>
-        <button class="btn btn-sm btn-outline-secondary" @click="stop" :disabled="!connectionId && !busy">
-          {{ context === 'settings' ? 'Остановить просмотр' : 'Отключить' }}
+        <button class="btn btn-sm btn-outline-secondary" @click="stop" :disabled="!connectionId && !busy">Остановить</button>
+        <button class="btn btn-sm btn-primary" @click="capture" :disabled="!connectionId || capturing || disabled || !active">
+          {{ capturing ? 'Съёмка…' : (context === 'calibration' ? 'Снять шкалу' : 'Снимок') }}
         </button>
-        <span class="small" :class="connectionId ? 'text-success' : 'text-muted'">
-          {{ connectionId ? 'Подключено' : 'Не подключено' }}
+        <span class="small ms-auto" :class="connectionId ? 'text-success' : 'text-muted'" role="status">
+          {{ connectionId ? 'Подключено' : (deviceIndex == null ? 'Камера не выбрана' : 'Видео выключено') }}
         </span>
       </div>
-      <div v-if="microscope && deviceIndex == null" class="small text-muted mb-2">Выберите камеру для этого микроскопа в настройках.</div>
-      <div v-if="connectionId" class="text-center bg-light p-1 mb-2">
-        <div class="small text-muted">Живое изображение камеры</div>
-        <img v-if="preview" :src="preview" alt="Видеопредпросмотр камеры" style="max-width:100%;max-height:300px;object-fit:contain;">
-        <span v-else class="small text-muted">Получение кадра…</span>
+      <div v-if="microscope && deviceIndex == null" class="small text-muted mb-2">Выберите камеру для этого микроскопа в настройках или загрузите готовый снимок.</div>
+      <div v-if="cameraError" class="alert alert-danger small py-1 mb-2" role="alert">{{ cameraError }}</div>
+      <div class="camera-images" :class="{'row g-2':context === 'settings'}">
+        <div :class="{'col-6':context === 'settings'}">
+          <div class="small text-muted mb-1">Видео камеры</div>
+          <div class="camera-image-frame bg-light d-flex align-items-center justify-content-center">
+            <img v-if="connectionId && preview" :src="preview" alt="Видеопредпросмотр камеры" class="workspace-image">
+            <span v-else class="small text-muted text-center p-2">{{ connectionId ? 'Получение кадра…' : 'Включите видео, чтобы проверить резкость и освещение' }}</span>
+          </div>
+        </div>
+        <div v-if="context === 'settings'" class="col-6">
+          <div class="small text-muted mb-1">{{ testSnapshot ? 'Тестовый снимок · ' + snapshotWidth + ' × ' + snapshotHeight : 'Тестовый снимок' }}</div>
+          <div class="camera-image-frame bg-light d-flex align-items-center justify-content-center">
+            <img v-if="testSnapshot" :src="testSnapshot" alt="Тестовый снимок" class="workspace-image">
+            <span v-else class="small text-muted text-center p-2">Нажмите «Снимок», чтобы проверить отдельный кадр</span>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-sm btn-primary" @click="capture"
-              :disabled="!connectionId || capturing || disabled || !active">
-        {{ capturing ? 'Съёмка…' : (context === 'calibration' ? 'Снять шкалу' : 'Снимок') }}
-      </button>
-      <div v-if="context === 'settings' && testSnapshot" class="text-center bg-light p-1 mt-2">
-        <div class="small text-muted">Тестовый снимок · {{ snapshotWidth }} × {{ snapshotHeight }}</div>
-        <img :src="testSnapshot" alt="Тестовый снимок" style="max-width:100%;max-height:300px;object-fit:contain;">
-      </div>
-      <div v-if="cameraError" class="alert alert-danger small py-1 mt-2 mb-0">{{ cameraError }}</div>
     </div>
   `,
   data() {
@@ -118,7 +122,9 @@ window.CameraPanel = {
     async capture() {
       if (!this.connectionId || !this.active || this.disabled || this.capturing) return;
       const generation = this.generation;
+      const microscope = this.microscope?.name || '';
       this.capturing = true;
+      this.$emit('capturing', true);
       this.cameraError = '';
       try {
         const settings = this.context === 'settings';
@@ -138,9 +144,9 @@ window.CameraPanel = {
           if (generation !== this.generation || !this.active) return;
           throw new Error(result.error || 'Не удалось сохранить снимок');
         }
-        this.$emit('captured', result);
+        this.$emit('captured', {...result, microscope});
       } catch (error) { if (generation === this.generation) this.fail(error); }
-      finally { this.capturing = false; }
+      finally { this.capturing = false;this.$emit('capturing', false); }
     },
   },
 };

@@ -1,221 +1,126 @@
 window.ResultsView = {
   template: `
-    <div>
-      <!-- Заголовок -->
-      <h5 class="mt-2">
-        Результат: <span class="fw-normal">{{ $root.selectedResearch?.name || '-' }}</span>
-      </h5>
-
-      <!-- Информационная строка -->
-      <div class="border px-3 py-1 mb-2 bg-light">
-        <div class="row gy-2 align-items-end">
-          <div class="col-md-3">
-            <div class="small text-muted">Сотрудник</div>
-            <div class="fw-semibold fs-5">{{ $root.selectedResearch?.employee || '-' }}</div>
-          </div>
-          <div class="col-md-3">
-            <div class="small text-muted">Микроскоп</div>
-            <div class="fs-5">{{ $root.selectedResearch?.microscope || '-' }}</div>
-          </div>
-          <div class="col-md-3">
-            <div class="small text-muted">Калибровка</div>
-            <div class="fs-5">{{ calibrationLabel }}</div>
-          </div>
-          <div class="col-md-3">
-            <div class="small text-muted">Дата</div>
-            <div class="fs-5">{{ $root.formatDate($root.selectedResearch?.date) }}</div>
-          </div>
+    <div class="research-results">
+      <div class="workspace-heading">
+        <div><h6 class="mb-1">{{ $root.researchState?.name || $root.selectedResearch?.name || 'Результаты исследования' }}</h6><span class="small" :class="$root.researchState?.saved ? 'text-success' : 'text-muted'">{{ $root.researchState?.saved ? 'Сохранено' : 'Есть несохранённые изменения' }}</span></div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-primary" @click="$root.currentTab = 'analyze'">Вернуться к снимкам</button>
+          <button class="btn btn-sm btn-success" :disabled="$root.researchState?.saveDisabled || $root.researchState?.working" @click="$root.saveActiveResearch()">Сохранить исследование</button>
         </div>
       </div>
-
-      <!-- Параметры с гистограммами -->
-      <div class="results-scroll p-3 pt-0">
-
-        <h6 class="mt-3 mb-3 d-flex align-items-center justify-content-between">
-          <span>Распределение параметров</span>
-          <span style="font-size:1.6rem;line-height:1;padding:.2rem .6rem .1rem;cursor:pointer;"
-                @click="toggleAll">
-            {{ toggleAllVisible ? '▲' : '▼' }}
-          </span>
-        </h6>
-
-        <!-- Количество диапазонов -->
-        <div class="d-flex align-items-center mb-3 gap-2" style="max-width:260px;">
-          <label class="form-label mb-0 text-nowrap small">Диапазонов:</label>
-          <input type="number" min="2" max="100" v-model.number="histogramBins"
-                 class="form-control form-control-sm" style="width:80px;">
-          <button class="btn btn-sm btn-outline-secondary" @click="redrawAll">Обновить</button>
+      <div v-if="$root.researchState?.error" class="alert alert-danger py-2" role="alert">{{ $root.researchState.error }}</div>
+      <div v-if="!$root.results.length" class="workspace-empty border rounded p-3">Результаты отсутствуют или снимки изменились. Вернитесь к снимкам и выполните анализ.</div>
+      <div v-else>
+        <div class="results-context border rounded p-2 mb-2">
+          <strong>Вся серия: {{ fileCount }} снимков · {{ $root.results.length }} частиц</strong>
+          <div class="d-flex flex-wrap gap-3 small text-muted mt-1">
+            <span>Сотрудник: {{ $root.researchState?.employee || $root.selectedResearch?.employee || '—' }}</span>
+            <span>Микроскоп: {{ $root.researchContext?.microscope || $root.selectedResearch?.microscope || '—' }}</span>
+            <span>Калибровка: {{ calibrationLabel }}</span>
+            <span>{{ $root.formatDate($root.selectedResearch?.date) }}</span>
+          </div>
+          <div v-if="$root.researchState?.status" class="small text-muted mt-1" role="status">{{ $root.researchState.status }}</div>
         </div>
-
-        <div v-for="param in params" :key="param.key" class="border mb-3 bg-white">
-          <!-- Заголовок секции -->
-          <div class="d-flex justify-content-between align-items-center px-3 py-2"
-               style="cursor:pointer;user-select:none;"
-               @click="toggle(param.key)">
-            <span class="fw-semibold" style="font-size:1.1rem;">
-              {{ param.label }}
-              <span class="small text-muted ms-3">
-                Среднее: <b>{{ ($root.averages[param.key] ?? 0).toFixed(2) }}</b>
-              </span>
-            </span>
-            <span style="font-size:1.4rem;">{{ visible[param.key] ? '▲' : '▼' }}</span>
+        <div class="results-summary mb-3">
+          <div v-for="param in params" :key="param.key" class="border rounded p-2">
+            <div class="small text-muted">Среднее · {{ param.label }}</div>
+            <strong>{{ formatNumber($root.averages[param.key]) }} <span class="small fw-normal">{{ param.unit }}</span></strong>
           </div>
-
-          <!-- Гистограмма -->
-          <div v-show="visible[param.key]" class="px-3 pb-2">
-            <canvas :id="'hist-' + param.key" class="w-100"
-                    style="min-height:200px;max-height:280px;"></canvas>
+        </div>
+        <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+          <button class="btn btn-sm" :class="view === 'table' ? 'btn-primary' : 'btn-outline-primary'" :aria-pressed="view === 'table'" @click="view = 'table'">Таблица частиц</button>
+          <button class="btn btn-sm" :class="view === 'histogram' ? 'btn-primary' : 'btn-outline-primary'" :aria-pressed="view === 'histogram'" @click="view = 'histogram'">Распределение</button>
+        </div>
+        <div v-if="view === 'table'">
+          <div class="results-table-wrap table-responsive border rounded">
+            <table class="table table-sm table-bordered mb-0 results-particles">
+              <thead class="table-light"><tr><th>№ частицы</th><th v-for="param in params" :key="param.key">{{ param.short || param.label }}, {{ param.unit }}</th></tr></thead>
+              <tbody><tr v-for="row in visibleRows" :key="row.contour_number"><td>{{ row.contour_number }}</td><td v-for="param in params" :key="param.key">{{ formatNumber(row[param.key]) }}</td></tr></tbody>
+            </table>
           </div>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2 small">
+            <span class="text-muted">{{ (safePage - 1) * pageSize + 1 }}–{{ Math.min(safePage * pageSize,$root.results.length) }} из {{ $root.results.length }} частиц всей серии</span>
+            <div class="d-flex align-items-center gap-2"><button class="btn btn-sm btn-outline-secondary" :disabled="safePage <= 1" @click="page = safePage - 1">Назад</button><span>{{ safePage }} / {{ pageCount }}</span><button class="btn btn-sm btn-outline-secondary" :disabled="safePage >= pageCount" @click="page = safePage + 1">Далее</button></div>
+          </div>
+        </div>
+        <div v-show="view === 'histogram'" class="border rounded p-2">
+          <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+            <div class="results-parameter"><label for="histogram-parameter" class="form-label">Параметр</label><select id="histogram-parameter" v-model="activeParameter" class="form-select form-select-sm"><option v-for="param in params" :key="param.key" :value="param.key">{{ param.label }}, {{ param.unit }}</option></select></div>
+            <div><label for="histogram-bins" class="form-label">Диапазоны</label><input id="histogram-bins" type="number" min="2" max="100" step="1" v-model.number="histogramBins" class="form-control form-control-sm histogram-bins" :aria-invalid="!!binsError" aria-describedby="histogram-error"></div>
+            <button class="btn btn-sm btn-outline-primary" @click="redrawAll">Построить</button>
+          </div>
+          <div v-if="binsError" id="histogram-error" class="small text-danger mb-2" role="alert">{{ binsError }}</div>
+          <div class="research-histogram"><canvas id="research-histogram" :aria-label="'Распределение: ' + currentParameter.label + ', ' + currentParameter.unit" role="img"></canvas></div>
         </div>
       </div>
     </div>
   `,
-
   data() {
-    return {
-      params: [
-        { key: 'perimeter', label: 'Периметр' },
-        { key: 'area',      label: 'Площадь' },
-        { key: 'width',     label: 'Ширина' },
-        { key: 'length',    label: 'Длина' },
-        { key: 'dek',       label: 'Диаметр эквивалентного круга' },
-      ],
-      visible: { perimeter: false, area: false, width: false, length: false, dek: false },
-      toggleAllVisible: false,
-      histogramBins:    20,
-    };
+    return {params:[{key:'perimeter',label:'Периметр',unit:'мкм'},{key:'area',label:'Площадь',unit:'мкм²'},
+      {key:'width',label:'Ширина',unit:'мкм'},{key:'length',label:'Длина',unit:'мкм'},
+      {key:'dek',label:'Диаметр эквивалентного круга',short:'ДЭК',unit:'мкм'}],
+      view:'table',activeParameter:'dek',histogramBins:20,appliedBins:20,binsError:'',page:1,pageSize:50};
   },
-
   computed: {
+    fileCount() { return this.$root.researchState?.fileCount ?? this.$root.researchContext?.fileCount ?? 0; },
     calibrationLabel() {
-      const c = this.$root.analyzeSelectedCalibration;
-      if (!c) return '-';
-      return c.name + (c.coefficient != null ? ` (k=${Number(c.coefficient).toFixed(3)})` : '');
+      const c = this.$root.researchContext?.calibration;
+      if (c?.name) return c.name;
+      const id = this.$root.selectedResearch?.calibration_id;
+      return id ? 'Недоступна · №' + id : '—';
     },
+    currentParameter() { return this.params.find(p => p.key === this.activeParameter) || this.params[4]; },
+    pageCount() { return Math.max(1,Math.ceil(this.$root.results.length / this.pageSize)); },
+    safePage() { return Math.min(Math.max(this.page,1),this.pageCount); },
+    visibleRows() { return this.$root.results.slice((this.safePage - 1) * this.pageSize,this.safePage * this.pageSize); },
   },
-
   watch: {
-    '$root.results'() {
-      this.$nextTick(() => this.redrawAll());
-    },
+    '$root.results'() { this.page = 1;this.destroyChart();this.requestChart(); },
+    '$root.currentTab'(tab) { if (tab === 'results') this.requestChart(); },
+    view() { this.requestChart(); },
+    activeParameter() { this.requestChart(); },
   },
-
+  beforeUnmount() { this.destroyChart(); },
   methods: {
-    toggle(key) {
-      this.visible[key] = !this.visible[key];
-      if (this.visible[key]) this.$nextTick(() => this.renderHistogram(key));
+    formatNumber(value) {
+      if (!Number.isFinite(value)) return '—';
+      return value !== 0 && Math.abs(value) < .000001 ? value.toExponential(3) : value.toLocaleString('ru-RU',{maximumFractionDigits:6});
     },
-
-    toggleAll() {
-      const next = !this.toggleAllVisible;
-      this.toggleAllVisible = next;
-      for (const p of this.params) this.visible[p.key] = next;
-      if (next) this.$nextTick(() => { for (const p of this.params) this.renderHistogram(p.key); });
-    },
-
+    requestChart() { this.$nextTick(() => { if (this.$root.currentTab === 'results' && this.view === 'histogram') this.renderHistogram(this.activeParameter); }); },
     redrawAll() {
-      this.$nextTick(() => {
-        for (const p of this.params) {
-          if (this.visible[p.key]) this.renderHistogram(p.key);
-        }
-      });
+      const value = this.histogramBins;
+      if (!Number.isInteger(value) || value < 2 || value > 100) { this.binsError = 'Укажите целое число диапазонов от 2 до 100';return; }
+      this.binsError = '';this.appliedBins = value;this.requestChart();
     },
-
-    // ------------------------------------------------------------------
-    // Гистограмма
-    // ------------------------------------------------------------------
-    createBins(minVal, maxVal, numBins) {
-      if (minVal === maxVal) return [{ start: minVal, end: maxVal, label: minVal.toFixed(2) }];
+    createBins(minVal,maxVal,numBins) {
+      if (!Number.isInteger(numBins) || numBins < 2 || numBins > 100) throw new Error('Число диапазонов должно быть целым от 2 до 100');
+      if (!Number.isFinite(minVal) || !Number.isFinite(maxVal) || minVal > maxVal) throw new Error('Некорректные границы распределения');
+      if (minVal === maxVal) return [{start:minVal,end:maxVal,label:this.formatNumber(minVal)}];
       const step = (maxVal - minVal) / numBins;
-      return Array.from({ length: numBins }, (_, i) => {
-        const start = minVal + i * step;
-        const end   = minVal + (i + 1) * step;
-        return { start, end, label: `${start.toFixed(2)} – ${end.toFixed(2)}` };
-      });
+      return Array.from({length:numBins},(_,i) => { const start = minVal + i * step,end = i === numBins - 1 ? maxVal : minVal + (i + 1) * step;return {start,end,label:this.formatNumber(start) + ' – ' + this.formatNumber(end)}; });
     },
-
-    distributeToBins(data, bins) {
+    distributeToBins(data,bins) {
       const counts = new Array(bins.length).fill(0);
-      for (const v of data) {
-        for (let i = 0; i < bins.length; i++) {
-          const { start, end } = bins[i];
-          const inBin = i < bins.length - 1 ? (v >= start && v < end) : (v >= start && v <= end);
-          if (inBin) { counts[i]++; break; }
-        }
+      for (const value of data) for (let i = 0;i < bins.length;i++) {
+        if (value >= bins[i].start && (i === bins.length - 1 ? value <= bins[i].end : value < bins[i].end)) { counts[i]++;break; }
       }
       return counts;
     },
-
-    renderHistogram(param) {
-      if (!window.Chart) return;
-      const dataArray = (this.$root.results || [])
-        .map(r => r[param])
-        .filter(v => typeof v === 'number' && !isNaN(v));
-      if (dataArray.length === 0) return;
-
-      const minVal = Math.min(...dataArray);
-      const maxVal = Math.max(...dataArray);
-      const bins   = this.createBins(minVal, maxVal, this.histogramBins);
-      const counts = this.distributeToBins(dataArray, bins);
-      const maxCount = Math.max(...counts);
-
-      const elem = document.getElementById('hist-' + param);
-      if (!elem) return;
-      const ctx = elem.getContext('2d');
-      if (ctx._chart) ctx._chart.destroy();
-
-      ctx._chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: bins.map(b => b.label),
-          datasets: [{
-            label:           'Количество значений',
-            data:            counts,
-            backgroundColor: '#5a99fa',
-            borderColor:     '#4285f4',
-            borderWidth:     1,
-          }],
-        },
-        plugins: [{
-          id: 'datalabels',
-          afterDatasetsDraw(chart) {
-            const ctx = chart.ctx;
-            ctx.save();
-            ctx.font          = 'bold 12px Arial';
-            ctx.fillStyle     = '#000';
-            ctx.textAlign     = 'center';
-            ctx.textBaseline  = 'bottom';
-            chart.data.datasets.forEach((dataset, i) => {
-              chart.getDatasetMeta(i).data.forEach((bar, idx) => {
-                if (dataset.data[idx] > 0) ctx.fillText(dataset.data[idx], bar.x, bar.y - 5);
-              });
-            });
-            ctx.restore();
-          },
-        }],
-        options: {
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                title: ctx => `Диапазон: ${ctx[0].label}`,
-                label: ctx => `Количество: ${ctx.parsed.y}`,
-              },
-            },
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              suggestedMax: maxCount > 0 ? Math.ceil(maxCount * 1.15) : 10,
-              ticks: { stepSize: 1 },
-              title: { display: true, text: 'Количество значений' },
-            },
-            x: { title: { display: true, text: 'Диапазоны значений' } },
-          },
-          responsive:          true,
-          maintainAspectRatio: false,
-        },
-      });
+    destroyChart() { if (this._histogramChart) { this._histogramChart.destroy();this._histogramChart = null; } },
+    renderHistogram(key) {
+      if (!window.Chart || !this.$root.results.length) return;
+      const data = this.$root.results.map(row => row[key]).filter(Number.isFinite);
+      if (!data.length) { this.destroyChart();return; }
+      const min = data.reduce((a,b) => Math.min(a,b),Infinity),max = data.reduce((a,b) => Math.max(a,b),-Infinity);
+      const bins = this.createBins(min,max,this.appliedBins),counts = this.distributeToBins(data,bins);
+      const canvas = document.getElementById('research-histogram');if (!canvas) return;
+      this.destroyChart();
+      const param = this.params.find(p => p.key === key);
+      this._histogramChart = new window.Chart(canvas.getContext('2d'),{type:'bar',data:{labels:bins.map(b => b.label),datasets:[{label:'Число частиц',data:counts,backgroundColor:'#323b88'}]},
+        options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{
+          x:{title:{display:true,text:param.label + ', ' + param.unit},ticks:{maxTicksLimit:10}},
+          y:{beginAtZero:true,ticks:{precision:0},title:{display:true,text:'Число частиц'}},
+        }}});
     },
   },
 };

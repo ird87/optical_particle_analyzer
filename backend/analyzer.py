@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from backend.logger import logger
+from backend.segmentation import segment_particles, validate_options
 from backend.storage import (
     SESSION_CAL_DIR,
     SESSION_RES_DIR,
@@ -166,7 +167,7 @@ def detect_black_strips_left_edges(binary: np.ndarray, draw_img: np.ndarray) -> 
 def run_research_analysis(
     calibration_coefficient: float = 1.0,
     division_price_value: float = 1.0,
-    *, threshold_mode: str = 'fixed',
+    *, threshold_mode: str = 'fixed', segmentation_options: dict | None = None,
 ) -> dict:
     """
     Обрабатывает все файлы из session/research/sources/.
@@ -179,6 +180,8 @@ def run_research_analysis(
     contours_dir   = SESSION_RES_DIR / 'contours'
     analyzed_dir   = SESSION_RES_DIR / 'analyzed'
 
+    options = validate_options(segmentation_options) if segmentation_options is not None else None
+    diagnostics = []
     all_contours: list[dict] = []
     contour_number = 1
 
@@ -201,13 +204,21 @@ def run_research_analysis(
         contrasted = increase_contrast(image.copy())
         write_image(contrasted_dir / src_path.name, contrasted)
 
-        detected = extract_particle_contours(contrasted, threshold_mode)
+        if options is None:
+            detected = extract_particle_contours(contrasted, threshold_mode)
+            diagnostic = {'method': 'legacy_' + threshold_mode, 'excluded_border': 0, 'excluded_small': 0, 'split_count': 0}
+        else:
+            segmented = segment_particles(image, options)
+            detected = segmented['contours']
+            diagnostic = {key: segmented[key] for key in ('method', 'excluded_border', 'excluded_small', 'split_count')}
+        diagnostics.append({'filename': src_path.name, 'count': len(detected), **diagnostic})
         contours, contour_number = measure_contours(
             detected, contour_number, calibration_coefficient, division_price_value,
         )
-        contoured = draw_particle_contours(contrasted, detected)
+        rendering = contrasted if options is None else image
+        contoured = draw_particle_contours(rendering, detected)
         write_image(contours_dir / src_path.name, contoured)
-        analyzed = draw_particle_contours(contrasted, detected, contours)
+        analyzed = draw_particle_contours(rendering, detected, contours)
         write_image(analyzed_dir / src_path.name, analyzed)
 
         logger.info(f'{src_path.name}: найдено {len(contours)} контуров')
@@ -219,7 +230,7 @@ def run_research_analysis(
             averages[key] = round(sum(c[key] for c in all_contours) / len(all_contours), 2)
 
     logger.info(f'Анализ завершён: итого {len(all_contours)} контуров')
-    return {'contours': all_contours, 'averages': averages}
+    return {'contours': all_contours, 'averages': averages, 'analysis_options': options, 'diagnostics': diagnostics}
 
 
 def estimate_scale_spacing(xs: list[int]) -> float:

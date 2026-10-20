@@ -10,6 +10,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.analyzer import (increase_contrast, extract_particle_contours,
                               measure_contours, draw_particle_contours)
+from backend.segmentation import segment_particles
 
 
 def synthetic_scenes():
@@ -23,6 +24,12 @@ def synthetic_scenes():
     scenes['gradient'] = cv2.cvtColor(gradient.astype(np.uint8), cv2.COLOR_GRAY2BGR)
     noise = np.random.default_rng(42).normal(0, 5, (200, 200, 3))
     scenes['noise'] = np.clip(scenes['normal'].astype(float) + noise, 0, 255).astype(np.uint8)
+    yy, xx = np.mgrid[:200, :200]
+    fabric = np.zeros((200, 200, 3), np.float32)
+    fabric[:] = (180, 90, 50)
+    fabric += (5 * np.sin(xx * 1.5) + 5 * np.cos(yy * 1.5))[:, :, None]
+    fabric[60:121, 60:101] = (220, 230, 235)
+    scenes['light_on_blue'] = np.clip(fabric + noise, 0, 255).astype(np.uint8)
     return scenes
 
 
@@ -30,10 +37,13 @@ def compare(image, output, name, known=False):
     prepared = increase_contrast(image)
     report = {}
     previews = [image.copy()]
-    for mode in ('fixed', 'otsu'):
-        contours = extract_particle_contours(prepared, mode)
+    for mode in ('fixed', 'otsu', 'auto'):
+        segmented = segment_particles(image) if mode == 'auto' else None
+        contours = segmented['contours'] if segmented else extract_particle_contours(prepared, mode)
         results, _ = measure_contours(contours)
         metrics = {'count': len(results)}
+        if segmented:
+            metrics['method'] = segmented['method']
         if known:
             largest = max(results, key=lambda r: r['area']) if results else None
             for key, expected in [('area', 2400), ('width', 40), ('length', 60)]:
@@ -43,7 +53,7 @@ def compare(image, output, name, known=False):
     height = min(500, image.shape[0])
     width = round(image.shape[1] * height / image.shape[0])
     resized = []
-    for label, preview in zip(('source', 'fixed 127', 'Otsu'), previews):
+    for label, preview in zip(('source', 'legacy 127', 'legacy Otsu', 'auto'), previews):
         preview = cv2.resize(preview, (width, height))
         cv2.putText(preview, label, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, .7, (0, 0, 255), 2)
         resized.append(preview)
@@ -57,7 +67,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    report = {'opencv': cv2.__version__, 'preprocessing': 'CLAHE 2.0 8x8 + Gaussian 5x5',
+    report = {'opencv': cv2.__version__, 'preprocessing': {'legacy': 'CLAHE 2.0 8x8 + Gaussian 5x5', 'auto': 'Original BGR + Gaussian 3x3; chromatic or corrected luminance mask'},
               'synthetic': {}, 'fixtures': {},
               'limitations': 'Photographs have no reference annotations. Counts do not measure accuracy.'}
     for name, image in synthetic_scenes().items():

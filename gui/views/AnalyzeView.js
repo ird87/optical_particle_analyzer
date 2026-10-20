@@ -56,6 +56,28 @@ window.AnalyzeView = {
           </div>
           <div class="small mt-1" :class="successMsg && !hasUnsavedChanges ? 'text-success' : 'text-muted'" role="status">{{ statusText }}</div>
         </div>
+        <details class="analysis-settings mb-2">
+          <summary class="small">Выделение частиц · {{ analysisModeLabel }}</summary>
+          <div class="row g-2 mt-1">
+            <div class="col-md-4">
+              <label for="particle-mode" class="form-label">Частицы и фон</label>
+              <select id="particle-mode" v-model="analysisOptions.mode" @change="onAnalysisOptionsChange" class="form-select form-select-sm" :disabled="working">
+                <option value="auto">Автоматически</option><option value="light">Светлые частицы</option><option value="dark">Тёмные частицы</option><option value="color">Цветной фон</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label for="particle-min-area" class="form-label">Минимальная площадь, пикс²</label>
+              <input id="particle-min-area" type="number" min="1" step="1" v-model.number="analysisOptions.min_area_px" @change="onAnalysisOptionsChange" class="form-control form-control-sm" :disabled="working">
+              <div class="small text-muted">{{ minimumParticleHint }}</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-check mt-md-4"><input type="checkbox" class="form-check-input" v-model="analysisOptions.split_touching" @change="onAnalysisOptionsChange" :disabled="working"> Разделять узкие соединения</label>
+              <div class="small text-muted">Эвристика для соприкасающихся частиц. Сравните обводку до и после.</div>
+            </div>
+          </div>
+          <div v-if="optionsError" class="small text-danger mt-1" role="alert">{{ optionsError }}</div>
+          <div v-if="$root.results.length && !resultOptionsKnown" class="small text-muted mt-1">Настройки исходного анализа неизвестны. Выбранные настройки применятся при новом расчёте.</div>
+        </details>
         <div class="row g-3 analysis-workspace">
           <div class="col-md-6 workspace-column">
             <div class="workspace-heading">
@@ -95,6 +117,9 @@ window.AnalyzeView = {
               <img v-if="currentImage" :src="currentImage" alt="Выбранный снимок серии" class="workspace-image">
               <span v-else class="small text-muted">{{ imageLoading ? 'Загрузка…' : 'Снимите кадр или загрузите файл' }}</span>
             </button>
+            <div v-if="selectedDiagnostic" class="small text-muted mt-1" role="status">
+              {{ methodLabel(selectedDiagnostic.method) }} · найдено: {{ selectedDiagnostic.count }} · на краю: {{ selectedDiagnostic.excluded_border }} · ниже порога: {{ selectedDiagnostic.excluded_small }}<span v-if="selectedDiagnostic.split_count"> · разделений: {{ selectedDiagnostic.split_count }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -104,6 +129,7 @@ window.AnalyzeView = {
   `,
   data() {
     return {sessionSyncing:false,refreshGeneration:0,syncGeneration:0,imageRequest:0,
+      analysisOptions:{mode:'auto',min_area_px:100,split_touching:false},appliedOptions:null,analysisDiagnostics:[],resultOptionsKnown:false,
       analysisVersion:0,calibrationRequest:0,calibrationsLoading:false,calibrationError:false,researchId:0,name:'',employee:'',selectedMicroscope:null,calibrations:[],
       activeMicroscopeName:'',sourceMicroscopeName:'',sourceMode:'camera',capturePending:false,
       isResearchLoadVisible:false,loadResearches:[],selectedResearchRow:null,
@@ -115,11 +141,28 @@ window.AnalyzeView = {
   },
   computed: {
     working() { return this.busy || this.calibrationsLoading || this.saving || this.uploading || this.capturePending || this.sessionSyncing || !!this.$root.researchPending; },
+    analysisModeLabel() { return {auto:'Автоматически',light:'Светлые частицы',dark:'Тёмные частицы',color:'Цветной фон'}[this.analysisOptions.mode] || 'Выберите режим'; },
+    optionsError() {
+      const options = this.analysisOptions;
+      if (!['auto','light','dark','color'].includes(options.mode)) return 'Выберите режим выделения частиц';
+      if (!Number.isFinite(options.min_area_px) || options.min_area_px < 1) return 'Минимальная площадь должна быть не меньше 1 пикселя²';
+      if (typeof options.split_touching !== 'boolean') return 'Проверьте настройку разделения частиц';
+      return '';
+    },
+    minimumParticleHint() {
+      const c = this.$root.analyzeSelectedCalibration;
+      const division = (this.$root.divisionPrices || []).find(p => p.name === c?.division_price);
+      if (!division || !(c.coefficient > 0) || this.optionsError) return 'Мелкие области ниже этого порога исключаются';
+      const diameter = Math.sqrt(4 * this.analysisOptions.min_area_px / Math.PI) * division.value / c.coefficient;
+      return 'Эквивалентный диаметр порога ≈ ' + diameter.toLocaleString('ru-RU',{maximumFractionDigits:2}) + ' мкм';
+    },
+    selectedDiagnostic() { return this.analysisDiagnostics.find(d => d.filename === this.currentFile?.name) || null; },
     availableCalibrations() { return this.selectedMicroscope ? this.calibrations.filter(c => c.microscope === this.selectedMicroscope.name) : []; },
     isCalibrationSelectDisabled() { return !this.selectedMicroscope || this.working; },
     calibrationPlaceholder() { return !this.selectedMicroscope ? 'Сначала выберите прибор' : (!this.availableCalibrations.length ? 'Нет калибровок для прибора' : 'Выберите калибровку'); },
     analysisDisabledReason() {
       if (this.working) return 'Дождитесь завершения операции';
+      if (this.optionsError) return this.optionsError;
       if (this.calibrationError) return 'Не удалось обновить калибровки. Повторите загрузку';
       if (!this.selectedMicroscope) return 'Выберите микроскоп';
       if (!this.files.length) return 'Добавьте снимки в серию';
@@ -131,7 +174,9 @@ window.AnalyzeView = {
     isAnalyzeButtonDisabled() { return !!this.analysisDisabledReason; },
     saveDisabledReason() {
       if (this.working) return 'Дождитесь завершения операции';
+      if (this.optionsError) return this.optionsError;
       if (this.calibrationError) return 'Не удалось обновить калибровки. Повторите загрузку';
+      if (this.appliedOptions && !this.sameOptions(this.analysisOptions,this.appliedOptions)) return 'Настройки изменились. Повторите анализ';
       if (!this.$root.results.length || this.needsAnalysis) return 'Выполните анализ серии';
       if (!this.name.trim()) return 'Введите название исследования';
       if (!this.selectedMicroscope || this.sourceMicroscopeName !== this.selectedMicroscope.name) return 'Проверьте выбранный микроскоп';
@@ -145,7 +190,7 @@ window.AnalyzeView = {
       const division = (this.$root.divisionPrices || []).find(p => p.name === c?.division_price);
       return division && c.coefficient > 0 ? (division.value / c.coefficient).toLocaleString('ru-RU',{maximumFractionDigits:6}) + ' мкм/пикс' : 'Укажите калибровку с тем же увеличением, что и снимки';
     },
-    fingerprint() { const c = this.$root.analyzeSelectedCalibration;return JSON.stringify([this.name,this.employee,this.selectedMicroscope?.name,c?.id,c?.coefficient,c?.division_price,this.$root.researchRevision,this.analysisVersion,this.files.map(f => f.name)]); },
+    fingerprint() { const c = this.$root.analyzeSelectedCalibration;return JSON.stringify([this.name,this.employee,this.selectedMicroscope?.name,c?.id,c?.coefficient,c?.division_price,this.$root.researchRevision,this.analysisVersion,this.analysisOptions,this.files.map(f => f.name)]); },
     hasUnsavedChanges() { return this.savedFingerprint ? this.fingerprint !== this.savedFingerprint : !!(this.name.trim() || this.employee.trim() || this.files.length || this.$root.results.length); },
     statusText() { return this.successMsg && !this.hasUnsavedChanges ? this.successMsg : (this.analysisDisabledReason || (this.needsAnalysis ? 'Снимки или калибровка изменились. Нужен повторный анализ' : (this.saveDisabledReason || (this.hasUnsavedChanges ? 'Есть несохранённые изменения' : '')))); },
     editorStatus() { return {working:this.working,unsaved:this.hasUnsavedChanges,saved:!!this.savedFingerprint && !this.hasUnsavedChanges,fileCount:this.files.length,name:this.name,employee:this.employee,saveDisabled:this.isSaveButtonDisabled,saveReason:this.saveDisabledReason,error:this.errorMsg,status:this.statusText}; },
@@ -164,7 +209,7 @@ window.AnalyzeView = {
   async mounted() { this.sessionSyncing = true;try { await this.fetchCalibrations();await this.syncFromRoot(this.$root.selectedResearch); } finally { this.sessionSyncing = false; } },
   methods: {
     confirmDiscard() { return !this.hasUnsavedChanges || confirm('Есть несохранённые изменения исследования. Продолжить без сохранения?'); },
-    clearResults() { this.$root.results = [];this.$root.averages = {};this.$root.researchContext = null;this.imageCache = {};this.successMsg = '';this.needsAnalysis = this.files.length > 0; },
+    clearResults() { this.$root.results = [];this.$root.averages = {};this.$root.researchContext = null;this.imageCache = {};this.successMsg = '';this.analysisDiagnostics = [];this.appliedOptions = null;this.resultOptionsKnown = false;this.needsAnalysis = this.files.length > 0; },
     clearFrames() { ++this.imageRequest;this.files = [];this.currentFile = null;this.currentImage = '';this.imageLoading = false;this.lastUsedIndex = 0;this.sourceMicroscopeName = '';this.selectedFolder = 'sources';this.clearResults(); },
     async refreshSession() {
       const generation = ++this.refreshGeneration;this.sessionSyncing = true;
@@ -200,6 +245,9 @@ window.AnalyzeView = {
       this.activeMicroscopeName = next?.name || '';this.$root.analyzeSelectedCalibration = null;
       this.sourceMode = this.isDefaultMicroscope ? 'file' : 'camera';this.errorMsg = '';
     },
+    async onAnalysisOptionsChange() { await this.onCalibrationChange(); },
+    methodLabel(method) { return {lab_background:'По цвету фона',gray_light:'Светлые частицы',gray_dark:'Тёмные частицы',gray_corrected:'С коррекцией освещения'}[method] || 'Пороговое выделение'; },
+    sameOptions(a,b) { return !!a && !!b && ['mode','min_area_px','split_touching'].every(key => a[key] === b[key]); },
     async onCalibrationChange() {
       this.clearResults();this.selectedFolder = 'sources';this.currentImage = '';this.imageLoading = false;++this.imageRequest;
       await this.$root.invalidateResearch();
@@ -268,6 +316,9 @@ window.AnalyzeView = {
           this.researchId = research.id || 0;this.name = research.name || '';this.employee = research.employee || '';
           this.selectedMicroscope = this.$root.microscopes.find(m => m.name === research.microscope) || null;
           this.activeMicroscopeName = research.microscope;this.sourceMicroscopeName = research.microscope;
+          this.analysisOptions = research.analysis_options ? {...research.analysis_options} : {mode:'auto',min_area_px:100,split_touching:false};
+          this.appliedOptions = {...this.analysisOptions};this.resultOptionsKnown = !!research.analysis_options;
+          this.analysisDiagnostics = Array.isArray(research.analysis_diagnostics) ? research.analysis_diagnostics : [];
           this.$root.analyzeSelectedCalibration = this.calibrations.find(c => c.id === research.calibration_id) || null;
         } else { this.researchId = 0;this.name = '';this.employee = '';this.selectedMicroscope = null;this.activeMicroscopeName = '';this.sourceMicroscopeName = ''; }
         this.sourceMode = this.isDefaultMicroscope ? 'file' : 'camera';this.imageCache = {};this.currentImage = '';this.files = [];this.currentFile = null;++this.imageRequest;
@@ -282,7 +333,7 @@ window.AnalyzeView = {
         if (generation !== this.syncGeneration) return;
         if (research) {
           const c = this.$root.analyzeSelectedCalibration;
-          this.$root.researchContext = {microscope:research.microscope,calibration:c ? {id:c.id,name:c.name} : null,fileCount:this.files.length};
+          this.$root.researchContext = {microscope:research.microscope,calibration:c ? {id:c.id,name:c.name} : null,fileCount:this.files.length,analysisOptions:research.analysis_options || null,diagnostics:this.analysisDiagnostics};
           this.savedFingerprint = research.id ? this.fingerprint : '';this.successMsg = research.id ? 'Сохранённое исследование открыто' : '';
         } else { this.savedFingerprint = '';this.successMsg = '';this.$root.researchContext = null; }
       } finally { if (generation === this.syncGeneration) this.sessionSyncing = false; }
@@ -347,14 +398,17 @@ window.AnalyzeView = {
     async analyzeAllFiles() {
       if (this.isAnalyzeButtonDisabled) { this.errorMsg = this.analysisDisabledReason;return; }
       const revision = this.$root.researchRevision,calibration = {...this.$root.analyzeSelectedCalibration},microscope = this.selectedMicroscope.name;
+      const options = {...this.analysisOptions};
       this.busy = true;this.analyzing = true;this.errorMsg = '';this.clearResults();
       this.selectedFolder = 'sources';this.currentImage = '';this.imageLoading = false;++this.imageRequest;
       try {
-        const result = await api.executeResearch(calibration.id);
-        if (!result.ok || result.revision !== revision || revision !== this.$root.researchRevision || microscope !== this.selectedMicroscope?.name || !this.sameCalibration(calibration,this.$root.analyzeSelectedCalibration)) { this.errorMsg = result.error || 'Снимки или настройки изменились. Повторите анализ';if (this.currentFile) await this.loadImage(this.currentFile.name,'sources');return; }
+        const result = await api.executeResearch(calibration.id,options);
+        if (!result.ok || result.revision !== revision || revision !== this.$root.researchRevision || microscope !== this.selectedMicroscope?.name || !this.sameCalibration(calibration,this.$root.analyzeSelectedCalibration) || !this.sameOptions(options,this.analysisOptions)) { this.errorMsg = result.error || 'Снимки или настройки изменились. Повторите анализ';if (this.currentFile) await this.loadImage(this.currentFile.name,'sources');return; }
         this.$root.results = result.contours;this.$root.averages = result.averages;this.needsAnalysis = false;this.analysisVersion++;
         this.$root.selectedResearch = {id:this.researchId,name:this.name,employee:this.employee,microscope,calibration_id:calibration.id,date:new Date().toISOString()};
-        this.$root.researchContext = {microscope,calibration,fileCount:this.files.length,revision};
+        this.appliedOptions = {...(result.analysis_options || options)};this.resultOptionsKnown = true;
+        this.analysisDiagnostics = Array.isArray(result.diagnostics) ? result.diagnostics : [];
+        this.$root.researchContext = {microscope,calibration,fileCount:this.files.length,revision,analysisOptions:this.appliedOptions,diagnostics:this.analysisDiagnostics};
         this.imageCache = {};this.selectedFolder = 'analyzed';if (this.currentFile) await this.loadImage(this.currentFile.name,'analyzed');
       } finally { this.busy = false;this.analyzing = false; }
     },

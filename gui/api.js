@@ -29,7 +29,7 @@ const api = (() => {
     getImage:          (filename, folder, context) => call('get_image', filename, folder, context),
 
     // Анализ
-    executeResearch:   (calibrationId)             => call('execute_research', calibrationId),
+    executeResearch:   (calibrationId, options)    => call('execute_research', calibrationId, options),
     executeCalibration:()                          => call('execute_calibration'),
 
     // Калибровки

@@ -12,6 +12,7 @@ import cv2
 import backend.database as db
 import backend.storage as storage
 from backend.analyzer import run_calibration_analysis, run_research_analysis
+from backend.segmentation import validate_options
 from backend.camera import CameraController
 from backend.microscopes import MicroscopeRegistry, validate_camera_index
 from backend.logger import logger
@@ -197,16 +198,17 @@ class Api:
         return {'data': storage.get_session_image_b64(filename, folder, context)}
 
     @_api_method
-    def execute_research(self, calibration_id: int) -> dict:
+    def execute_research(self, calibration_id: int, analysis_options: dict | None = None) -> dict:
         self._analysis = None
         cal = db.get_calibration(calibration_id) if calibration_id else None
         coeff, division = _calibration_scale(cal)
-        result = run_research_analysis(coeff, division)
+        options = validate_options(analysis_options)
+        result = run_research_analysis(coeff, division, segmentation_options=options)
         if not result['contours']:
             self._analysis = None
             raise ValueError('Частицы не найдены. Проверьте резкость, освещение и исходные изображения')
         revision = self._revisions['research']
-        self._analysis = dict(result, revision=revision, calibration_id=cal.id,
+        self._analysis = dict(result, options=options, revision=revision, calibration_id=cal.id,
                               calibration_signature=self._calibration_signature(cal.id))
         return dict(result, revision=revision)
 
@@ -299,6 +301,8 @@ class Api:
                     ('contour_number','perimeter','area','width','length','dek')}) for result in analysis['contours']]
         db.save_contours(identifier, contours)
         storage.save_research_files(identifier)
+        storage.write_research_metadata(identifier, {'version': 1, 'options': analysis.get('options'),
+                                                     'diagnostics': analysis.get('diagnostics', [])})
         self.session['research_id'] = identifier
         return {'id': identifier}
 
@@ -314,7 +318,17 @@ class Api:
         revision = self._revisions['research']
         self.session['research_id'] = research_id
         result = _res_to_dict(res, db.get_contours(research_id))
-        self._analysis = {'revision': revision, 'calibration_id': res.calibration_id,
+        metadata = storage.read_research_metadata(research_id)
+        options = metadata.get('options')
+        try:
+            options = validate_options(options) if options is not None else None
+        except ValueError:
+            options = None
+        result['analysis_options'] = options
+        diagnostics = metadata.get('diagnostics', [])
+        result['analysis_diagnostics'] = [d for d in diagnostics if isinstance(d, dict)] if isinstance(diagnostics, list) else []
+        self._analysis = {'revision': revision, 'options': options, 'diagnostics': result['analysis_diagnostics'],
+                          'calibration_id': res.calibration_id,
                           'calibration_signature': self._calibration_signature(res.calibration_id),
                           'contours': result['contours'],
                           'averages': {key: getattr(res, 'average_' + key) for key in ('perimeter','area','width','length','dek')}}

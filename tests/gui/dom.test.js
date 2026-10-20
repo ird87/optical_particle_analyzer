@@ -12,6 +12,7 @@ w.console.error=(...args)=>errors.push(args.join(' '));
 const state={microscopes:[{name:'По умолчанию',type:'DEFAULT',custom:false,camera_index:null},
                          {name:'М001',type:'MANUAL',custom:false,camera_index:null}],
              calibrations:[],researchRevision:0,calibrationRevision:0,files:[],calFiles:[],owner:null,saved:null};
+let videoFrames=0;
 const contour={contour_number:1,perimeter:10,area:20,width:2,length:3,dek:5};
 const averages={perimeter:10,area:20,width:2,length:3,dek:5};
 const ok=data=>({ok:true,...data});
@@ -26,8 +27,11 @@ const methods={
   save_custom_microscope:data=>{state.microscopes.push({...data,id:1,custom:true,type_localized:'Ручной'});return ok({id:1});},
   bind_microscope:(name,index)=>{state.microscopes.find(m=>m.name===name).camera_index=index;return ok({});},
   connect_microscope:(name,ctx)=>{state.owner=ctx;return ok({connection_id:ctx,revision:state[ctx+'Revision']||0});},
+  scan_cameras:()=>ok({cameras:[{index:0,label:'Камера 0'}]}),
+  connect_camera:index=>{assert.strictEqual(index,0);state.owner='test';return ok({connection_id:'test'});},
+  capture_test_frame:token=>{assert.strictEqual(token,state.owner);assert(['test','settings'].includes(token));return ok({data:'data:image/jpeg;base64,c25hcHNob3Q=',width:1600,height:1000});},
   disconnect_camera:token=>{if(state.owner===token)state.owner=null;return ok({});},
-  get_camera_frame:()=>ok({data:'data:image/jpeg;base64,/9j/'}),
+  get_camera_frame:()=>ok({data:'data:image/jpeg;base64,'+Buffer.from('frame-'+(++videoFrames)).toString('base64')}),
   capture_image:(token,ctx,revision)=>{
     assert.strictEqual(token,ctx);assert.strictEqual(revision,state[ctx+'Revision']);
     const filename=ctx==='research'?(state.files.length+1)+'.jpg':'sources.jpg';
@@ -74,6 +78,27 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     root.currentTab='calibration';await settle();
     assert.strictEqual(calibration.calibSelectedMicroscope.camera_index,2);
     root.currentTab='settings';
+    await settings.scanCameras();await settings.selectCamera(settings.cameras[0]);await settle();
+    let testPanel=find(settings.$.subTree,w.CameraPanel);
+    assert(testPanel,'Discovered cameras must use the continuous preview panel');
+    await testPanel.connect();await settle();
+    const video=w.document.querySelector('img[alt="Видеопредпросмотр камеры"]');
+    assert(video,'Live video must be visible before taking a snapshot');
+    const frameBefore=video.src;
+    const snapshotButton=[...testPanel.$el.querySelectorAll('button')].find(b=>b.textContent.trim()==='Снимок');
+    assert(snapshotButton && !snapshotButton.disabled,'Settings must have a separate snapshot button');
+    snapshotButton.click();await settle();
+    const snapshot=w.document.querySelector('img[alt="Тестовый снимок"]');
+    assert(snapshot,'Snapshot must appear separately from the live image');
+    const snapshotBefore=snapshot.src;
+    await testPanel.poll(testPanel.generation);await settle();
+    assert.notStrictEqual(video.src,frameBefore);
+    assert.strictEqual(snapshot.src,snapshotBefore);
+    assert.strictEqual(state.files.length,0);
+    assert.strictEqual(state.researchRevision,0);
+    assert.strictEqual(state.calibrationRevision,0);
+    root.currentTab='calibration';await settle();assert.strictEqual(state.owner,null);
+    root.currentTab='settings';await settle();
     settings.newName='USB';settings.selectedCamera={index:0,label:'Камера 0'};
     await settings.addMicroscope();await settle();
     assert(root.microscopes.some(m=>m.name==='USB'));
@@ -82,6 +107,7 @@ const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await w.Vue.
     let panel=find(settings.$.subTree,w.CameraPanel);
     await panel.connect();await settle();
     assert(w.document.body.textContent.includes('Подключено'));
+    await panel.capture();await settle();assert(panel.testSnapshot);
     await panel.stop();
 
     root.currentTab='calibration';

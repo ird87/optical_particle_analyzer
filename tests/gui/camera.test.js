@@ -26,6 +26,50 @@ async function test(name, run) {
 }
 
 (async () => {
+  await test('settings test continuously refreshes video and takes a separate snapshot', async () => {
+    const timers=[];let reads=0;let openedIndex=null;
+    const context=load('gui/components/CameraPanel.js',{
+      connectCamera:async index=>{openedIndex=index;return {ok:true,connection_id:'test'};},
+      getCameraFrame:async()=>({ok:true,data:'video-'+(++reads)}),
+      captureTestFrame:async token=>({ok:token==='test',data:'full-snapshot',width:1600,height:1000}),
+      disconnectCamera:async()=>({ok:true}),
+    },{setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:()=>{}});
+    const state=instance(context.window.CameraPanel,{active:true,context:'settings',cameraIndex:0});
+    await state.connect();await tick();
+    assert.strictEqual(openedIndex,0);
+    assert.strictEqual(state.preview,'video-1');
+    await state.capture();
+    assert.strictEqual(state.testSnapshot,'full-snapshot');
+    assert.strictEqual(state.preview,'video-1');
+    timers.shift()();await tick();
+    assert.strictEqual(state.preview,'video-2');
+    assert.strictEqual(state.testSnapshot,'full-snapshot');
+    await state.stop();
+  });
+  await test('late test snapshot is ignored after leaving settings', async () => {
+    const pending=deferred();
+    const context=load('gui/components/CameraPanel.js',{
+      captureTestFrame:()=>pending.promise,disconnectCamera:async()=>({ok:true}),
+    });
+    const state=instance(context.window.CameraPanel,{active:true,context:'settings',connectionId:'test'});
+    const capturing=state.capture();state.active=false;await state.stop();
+    pending.resolve({ok:true,data:'old-snapshot',width:100,height:80});await capturing;
+    assert.strictEqual(state.testSnapshot,'');
+    assert(!state.events.some(event=>event[0]==='captured'));
+  });
+  await test('switching test cameras closes preview and clears the previous snapshot', async () => {
+    let disconnected='';
+    const context=load('gui/components/CameraPanel.js',{
+      disconnectCamera:async token=>{disconnected=token;return {ok:true};},
+    });
+    const definition=context.window.CameraPanel;
+    const state=instance(definition,{active:true,context:'settings',cameraIndex:0,connectionId:'test'});
+    state.testSnapshot='old-snapshot';
+    await definition.watch.cameraIndex.call(state,1);
+    assert.strictEqual(disconnected,'test');
+    assert.strictEqual(state.testSnapshot,'');
+    assert.strictEqual(state.connectionId,'');
+  });
   await test('stale frame is ignored and only one preview request is active', async () => {
     const pending = deferred(); let reads = 0;
     const context = load('gui/components/CameraPanel.js', {

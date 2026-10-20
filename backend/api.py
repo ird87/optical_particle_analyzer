@@ -13,7 +13,7 @@ import backend.database as db
 import backend.storage as storage
 from backend.analyzer import run_calibration_analysis, run_research_analysis
 from backend.camera import CameraController
-from backend.microscopes import MicroscopeRegistry
+from backend.microscopes import MicroscopeRegistry, validate_camera_index
 from backend.logger import logger
 from backend.models import (
     DIVISION_PRICES,
@@ -352,7 +352,7 @@ class Api:
 
     @_api_method
     def delete_custom_microscope(self, microscope_id: int) -> dict:
-        if self._owner and self.registry.get(self._owner['name']).get('id') == microscope_id:
+        if self._owner and self._owner['name'] is not None and self.registry.get(self._owner['name']).get('id') == microscope_id:
             self._close_camera()
         self.registry.delete(microscope_id)
         return {}
@@ -372,15 +372,35 @@ class Api:
             self.camera.close(token)
 
     @staticmethod
+    def _encode_jpeg(frame, quality=95):
+        success, encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        if not success:
+            raise OSError('Не удалось подготовить кадр')
+        return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii')
+
+    @staticmethod
     def _encode_preview(frame):
         h, w = frame.shape[:2]
         if max(h,w) > 800:
             scale = 800 / max(h,w)
             frame = cv2.resize(frame, (round(w * scale), round(h * scale)))
-        success, encoded = cv2.imencode('.jpg', frame)
-        if not success:
-            raise OSError('Не удалось подготовить предпросмотр')
-        return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii')
+        return Api._encode_jpeg(frame, quality=80)
+
+    @_api_method
+    def connect_camera(self, camera_index: int) -> dict:
+        """Test a discovered camera before registering a microscope."""
+        validate_camera_index(camera_index)
+        self._close_camera()
+        token = self.camera.open(camera_index)
+        self._owner = {'token': token, 'name': None, 'context': 'settings'}
+        return {'connection_id': token}
+
+    @_api_method
+    def capture_test_frame(self, connection_id: str) -> dict:
+        self._camera_owner(connection_id, 'settings')
+        frame = self.camera.read(connection_id)
+        height, width = frame.shape[:2]
+        return {'data': self._encode_jpeg(frame), 'width': width, 'height': height}
 
     @_api_method
     def connect_microscope(self, name: str, context: str) -> dict:

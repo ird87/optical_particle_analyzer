@@ -243,3 +243,63 @@ def test_deleted_loaded_calibration_becomes_new_unsaved_record(api):
     recreated=api.save_calibration(dict(data,id=0,revision=deleted['revision']))
     assert recreated['ok'],recreated
     assert db.get_calibration(recreated['id']) is not None
+
+
+@pytest.mark.parametrize('registered', [False, True])
+def test_settings_camera_stream_and_full_resolution_snapshot_do_not_change_sessions(api, monkeypatch, registered):
+    reads = 0
+    def read_frame(self):
+        nonlocal reads
+        reads += 1
+        return True, np.full((1000, 1600, 3), 30 * reads, np.uint8)
+    monkeypatch.setattr(Capture, 'read', read_frame)
+    before = dict(api._revisions)
+    analysis = api._analysis = {'cached': 'analysis'}
+    connected = api.connect_microscope('USB', 'settings') if registered else api.connect_camera(2)
+    assert connected['ok'], connected
+    token = connected['connection_id']
+    first = api.get_camera_frame(token)
+    second = api.get_camera_frame(token)
+    assert first['ok'] and second['ok']
+    assert first['data'] != second['data']
+    def decode(data):
+        return cv2.imdecode(np.frombuffer(base64.b64decode(data.split(',')[1]), np.uint8), cv2.IMREAD_COLOR)
+    assert max(decode(first['data']).shape[:2]) == 800
+    snapshot = api.capture_test_frame(token)
+    assert snapshot['ok'], snapshot
+    assert decode(snapshot['data']).shape == (1000, 1600, 3)
+    assert (snapshot['width'], snapshot['height']) == (1600, 1000)
+    assert api._revisions == before and api._analysis is analysis
+    assert not list(storage.SESSION_RES_DIR.joinpath('sources').iterdir())
+    assert not storage.SESSION_CAL_DIR.joinpath('sources.jpg').exists()
+    assert api.get_camera_frame(token)['ok'], 'Taking a snapshot must leave the video running'
+
+
+def test_test_snapshot_requires_settings_connection(api):
+    state = connect(api, 'research')
+    assert not api.capture_test_frame(state['connection_id'])['ok']
+    assert api.get_camera_frame(state['connection_id'])['ok']
+
+
+@pytest.mark.parametrize('index', [-1, True, '0', None])
+def test_invalid_test_camera_does_not_close_current_preview(api, index):
+    connected = api.connect_camera(0)
+    assert connected['ok'], connected
+    assert not api.connect_camera(index)['ok']
+    assert api.get_camera_frame(connected['connection_id'])['ok']
+
+
+def test_stale_test_camera_cannot_capture_or_disconnect_current_preview(api):
+    first = api.connect_camera(0)
+    current = api.connect_camera(1)
+    assert not api.capture_test_frame(first['connection_id'])['ok']
+    api.disconnect_camera(first['connection_id'])
+    assert api.get_camera_frame(current['connection_id'])['ok']
+
+
+def test_deleting_microscope_while_testing_unregistered_camera_keeps_preview(api):
+    connected = api.connect_camera(2)
+    assert connected['ok'], connected
+    deleted = api.delete_custom_microscope(api.registry.get('USB')['id'])
+    assert deleted['ok'], deleted
+    assert api.get_camera_frame(connected['connection_id'])['ok']

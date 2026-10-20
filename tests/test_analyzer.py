@@ -135,6 +135,16 @@ def test_rendering_does_not_change_measurements_or_merge_neighbors():
     assert analyzer.measure_contours(contours)[0] == results
 
 
+def test_particle_numbers_keep_white_outline_on_dark_background():
+    image = np.zeros((80, 140, 3), np.uint8)
+    rendered = analyzer.draw_particle_contours(image, [], [
+        {'contour_number': 10, 'cx': 30, 'cy': 50},
+    ])
+    preview = cv2.resize(rendered, (70, 40), interpolation=cv2.INTER_AREA)
+    assert np.any(np.all(preview > 220, axis=2)), 'Number outline disappears in the preview'
+    assert not np.any(image), 'Drawing must not modify the measurement image'
+
+
 def test_circle_metrics_and_squared_area_scale():
     image = np.full((160, 160, 3), 255, np.uint8)
     cv2.circle(image, (80, 80), 30, (0, 0, 0), -1)

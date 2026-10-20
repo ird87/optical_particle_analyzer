@@ -82,5 +82,17 @@
 
 - [x] Выполнить полный pytest на Linux/Windows и JavaScript/DOM проверки.
 - [x] Пройти полный сценарий на симуляторе: подключение → ноль → шкала Z → сетка → анализ → сохранение → загрузка.
-- [ ] Проверить компиляцию прошивки и сборку exe; реальное оборудование обозначить как не проверенное.
-- [ ] Провести независимое ревью; исправить существенные замечания; отправить коммиты в claude.
+- [x] Проверить компиляцию прошивки и сборку exe; реальное оборудование обозначить как не проверенное.
+- [x] Провести независимое ревью; исправить существенные замечания; отправить коммиты в claude.
+
+## Verification — 2026-10-20
+
+- Linux Python 3.10: 241 tests passed; Windows Python 3.13: 241 tests passed.
+- GUI: camera26, research27, stage unit, legacy DOM and complete stage DOM flows passed.
+- Arduino AVR1.8.6 / AccelStepper1.64: Nano, Uno, Mega and configured Nano/DRV8825 compiled.
+- Independent review: two Important issues fixed with failing-then-passing regressions;
+  polling lifecycle leak also fixed. Complete suites green after the fixes.
+- Windows PyInstaller executable built and its window launched successfully from an
+  isolated TEMP copy. Bundled GUI files match the final source.
+- No real serial port opened, firmware uploaded or physical motion tested. Engineer
+  commissioning and real camera/optics qualification remain required.

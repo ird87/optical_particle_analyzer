@@ -68,7 +68,7 @@ def test_malformed_responses_cannot_authorize_motion(value):
 def response(identifier=1, **fields):
     return {'id': identifier, 'ok': True, 'done': True, 'protocol': 1, 'state': 'IDLE',
             'homed': True, 'pos': [0, 0, 0], 'limits': [0, 0, 0], 'max': [10000]*3,
-            'configured': True, 'board': 'nano', 'driver': 'a4988', **fields}
+            'configured': True, 'board': 'nano', 'driver': 'a4988', 'machine_id': 'test-nano', 'config_id': 1, **fields}
 
 
 def test_done_requires_well_formed_coordinates_and_protocol():
@@ -165,3 +165,43 @@ def test_an_idle_controller_reboot_invalidates_its_reference():
         assert not stage.snapshot()['homed'] and not stage.snapshot()['connected']
     finally:
         stage.close()
+
+
+def test_cancelled_home_cannot_restart_after_stop():
+    stage=StageController();stage.connect({'mode':'simulator'})
+    cancel=threading.Event();cancel.set();stage.stop()
+    with pytest.raises(StageError):stage.home(cancel=cancel)
+    assert not stage.snapshot()['homed']
+    stage.close()
+
+
+def test_late_move_done_after_stop_never_restores_reference():
+    from backend.stage_transport import SerialStage
+    serial=FakeSerial();original=serial.write;move_id=[]
+    def write(raw):
+        tokens=raw.decode().strip().split()
+        if tokens[1]=='MOVE':move_id.append(int(tokens[0]));return len(raw)
+        if tokens[1]=='STOP' and move_id:
+            serial.incoming.put((json.dumps(response(int(tokens[0]),homed=False,state='UNHOMED'))+'\n'+
+                                 json.dumps(response(move_id[-1],pos=[1,2,3]))+'\n').encode())
+            return len(raw)
+        return original(raw)
+    serial.write=write
+    stage=SerialStage(validate_stage_settings({'port':'TEST'}),serial_factory=lambda *a,**k:serial)
+    stage.home();errors=[]
+    def move():
+        try:stage.move(1,2,3)
+        except StageError as error:errors.append(str(error))
+    worker=threading.Thread(target=move);worker.start()
+    deadline=time.monotonic()+1
+    while not move_id and time.monotonic()<deadline:time.sleep(.001)
+    stage.stop();worker.join(1)
+    try:
+        assert errors
+        assert not stage.snapshot()['homed']
+    finally:stage.close()
+
+
+def test_identity_required_to_bind_optical_scale():
+    for identity in [{'machine_id':None}, {'machine_id':'bad/id'}, {'config_id':None}]:
+        with pytest.raises(StageError):parse_stage_response(json.dumps(response(**identity)))

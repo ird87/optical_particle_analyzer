@@ -2,6 +2,7 @@
 import copy
 import json
 import math
+import re
 from threading import Event, Lock, RLock
 
 
@@ -81,6 +82,10 @@ def parse_stage_response(raw):
                 raise ValueError('Неверные концевики')
         if value.get('board') not in ('nano', 'uno', 'mega') or value.get('driver') not in ('a4988', 'drv8825'):
             raise ValueError('Неподдерживаемое оборудование')
+        if not isinstance(value.get('machine_id'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', value['machine_id']):
+            raise ValueError('Нет идентификатора стола')
+        if type(value.get('config_id')) is not int or not 0 <= value['config_id'] <= 0xffffffff:
+            raise ValueError('Нет отпечатка конфигурации прошивки')
         return value
     except (ValueError, TypeError, UnicodeError) as error:
         raise StageError(f'Некорректный ответ контроллера: {error}') from error
@@ -96,19 +101,21 @@ class SimulatedStage:
         self._state = {'connected': True, 'protocol': 1, 'state': 'UNHOMED', 'homed': False,
                        'pos': [0, 0, 0], 'limits': [0, 0, 0], 'max': settings['travel_steps'][:],
                        'configured': True, 'board': settings['board'], 'driver': settings['driver'],
-                       'machine_id': 'simulator', 'mode': 'simulator'}
+                       'machine_id': 'simulator', 'config_id': 1, 'mode': 'simulator'}
 
     def snapshot(self):
         with self._lock:
             return copy.deepcopy(self._state)
 
-    def _run(self, target, homing=False):
+    def _run(self, target, homing=False, cancel=None):
         if not self._operation.acquire(blocking=False):
             raise StageError('Стол уже выполняет перемещение')
         try:
             with self._lock:
                 if not self._state['connected']:
                     raise StageError('Стол отключён')
+                if cancel is not None and cancel.is_set():
+                    raise StageError('Перемещение отменено до запуска')
                 self._cancel.clear()
                 self._state['state'] = 'HOMING' if homing else 'MOVING'
             if self._cancel.wait(self.motion_delay):
@@ -121,11 +128,11 @@ class SimulatedStage:
         finally:
             self._operation.release()
 
-    def home(self):
-        return self._run([0, 0, 0], homing=True)
+    def home(self, cancel=None):
+        return self._run([0, 0, 0], homing=True, cancel=cancel)
 
-    def move(self, x, y, z):
-        return self._run([x, y, z])
+    def move(self, x, y, z, cancel=None):
+        return self._run([x, y, z], cancel=cancel)
 
     def stop(self):
         with self._lock:
@@ -172,17 +179,17 @@ class StageController:
             device = self._device
         return device.snapshot() if device else {'connected': False, 'state': 'DISCONNECTED', 'homed': False}
 
-    def home(self):
+    def home(self, cancel=None):
         device = self._connected()
         if not device.snapshot()['configured']:
             raise StageError('Инженер должен настроить и подтвердить конфигурацию прошивки')
-        result = device.home()
+        result = device.home() if cancel is None else device.home(cancel=cancel)
         if not result.get('homed') or result.get('state') != 'IDLE' or result.get('pos') != [0, 0, 0]:
             device.stop()
             raise StageError('Контроллер не подтвердил привязку всех осей к нулю')
         return result
 
-    def move(self, x, y, z):
+    def move(self, x, y, z, cancel=None):
         device = self._connected()
         state = device.snapshot()
         if not state['configured'] or not state['homed']:
@@ -191,7 +198,7 @@ class StageController:
         maximum = [min(a, b) for a, b in zip(state['max'], self.settings['travel_steps'])]
         if any(type(v) is not int or not 0 <= v <= limit for v, limit in zip(target, maximum)):
             raise ValueError('Координаты должны быть целыми и находиться в пределах хода стола')
-        result = device.move(*target)
+        result = device.move(*target) if cancel is None else device.move(*target, cancel=cancel)
         if not result.get('homed') or result.get('state') != 'IDLE' or result.get('pos') != target:
             device.stop()
             raise StageError('Контроллер не подтвердил достижение требуемых координат')

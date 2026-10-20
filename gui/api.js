@@ -9,6 +9,14 @@ const api = (() => {
   }
 
   return {
+    getAcquisitionScale: () => call('get_acquisition_scale'),
+    getStageState: name => call('get_stage_state', name),
+    getStagePorts: () => call('get_stage_ports'),
+    saveStageSettings: (name, settings) => call('save_stage_settings', name, settings),
+    startStageJob: (name, kind, params) => call('start_stage_job', name, kind, params),
+    stopStage: () => call('stop_stage'),
+    disconnectStage: () => call('disconnect_stage'),
+    getStageProfileImage: (id, z) => call('get_stage_profile_image', id, z),
     getSessionState:   context => call('get_session_state', context),
     invalidateResearch: revision => call('invalidate_research', revision),
     bindMicroscope: (name, index) => call('bind_microscope', name, index),

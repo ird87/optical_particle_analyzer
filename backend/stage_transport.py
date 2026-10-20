@@ -18,7 +18,7 @@ class SerialStage:
             serial_factory = serial.Serial
         self.settings = settings
         self._state_lock = RLock()
-        self._write_lock = Lock()
+        self._write_lock = RLock()
         self._operation = Lock()
         self._pending = {}
         self._closed = Event()
@@ -86,7 +86,7 @@ class SerialStage:
                     response = parse_stage_response(raw)
                     with self._state_lock:
                         pending = self._pending.get(response['id'])
-                        if pending is None:
+                        if pending is None or pending.get('error'):
                             continue  # Never use a late DONE as current position.
                         if not response['ok']:
                             pending['error'] = response['error']
@@ -99,15 +99,18 @@ class SerialStage:
             if not self._closed.is_set():
                 self._fail(str(error))
 
-    def _request(self, command, timeout=None):
+    def _request(self, command, timeout=None, cancel=None):
         timeout = timeout or self.settings['move_timeout_s']
-        pending = {'event': Event()}
+        pending = {'event': Event(), 'command': command}
         with self._state_lock:
             self._sequence += 1
             identifier = self._sequence
             self._pending[identifier] = pending
         try:
-            self._write(f'{identifier} {command}\n')
+            with self._write_lock:
+                if (cancel is not None and cancel.is_set()) or pending.get('error'):
+                    raise StageError('Перемещение отменено до отправки')
+                self._write(f'{identifier} {command}\n')
             if not pending['event'].wait(timeout):
                 try:
                     self._write(f'{identifier + 1000000000} STOP\n')
@@ -123,31 +126,31 @@ class SerialStage:
             with self._state_lock:
                 self._pending.pop(identifier, None)
 
-    def _motion(self, command, state):
+    def _motion(self, command, state, timeout=None, cancel=None):
         if not self._operation.acquire(blocking=False):
             raise StageError('Стол уже выполняет перемещение')
         try:
             with self._state_lock:
                 self._state['state'] = state
-            return self._request(command)
+            return self._request(command, timeout=timeout, cancel=cancel)
         finally:
             self._operation.release()
 
-    def home(self):
-        return self._motion('HOME', 'HOMING')
+    def home(self, cancel=None):
+        return self._motion('HOME', 'HOMING', timeout=max(280, self.settings['move_timeout_s']), cancel=cancel)
 
-    def move(self, x, y, z):
-        return self._motion(f'MOVE {x} {y} {z}', 'MOVING')
+    def move(self, x, y, z, cancel=None):
+        return self._motion(f'MOVE {x} {y} {z}', 'MOVING', cancel=cancel)
 
     def stop(self):
-        # Deliberately bypass the operation lock held by HOME/MOVE.
-        result = self._request('STOP', timeout=3)
+        # Cancel pending motion BEFORE STOP so a late DONE cannot restore homed.
         with self._state_lock:
+            self._state.update(homed=False, state='UNHOMED')
             for pending in self._pending.values():
-                if not pending['event'].is_set():
+                if pending['command'] == 'HOME' or pending['command'].startswith('MOVE '):
                     pending['error'] = 'Перемещение остановлено'
                     pending['event'].set()
-        return result
+        return self._request('STOP', timeout=3)
 
     def close(self):
         if not self._closed.is_set():

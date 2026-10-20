@@ -18,6 +18,7 @@ const contour={contour_number:1,perimeter:10,area:20,width:2,length:3,dek:5};
 const averages={perimeter:10,area:20,width:2,length:3,dek:5};
 const ok=data=>({ok:true,...data});
 const methods={
+  get_stage_state:()=>ok({settings:{mode:'serial',port:'',board:'nano',driver:'a4988',travel_steps:[10000,10000,10000],steps_per_mm:[200,200,200]},stage:{connected:false},connected_microscope:null,profiles:[],job:{active:false,status:'idle'}}),
   get_microscopes:()=>ok({microscopes:state.microscopes}),
   get_division_prices:()=>ok({division_prices:[{name:'1 мкм',value:1}]}),
   get_calibrations:()=>ok({calibrations:state.calibrations}),

@@ -331,27 +331,11 @@ def _detect_calibration_scale(image: np.ndarray, contrasted: np.ndarray):
     return orientation, positions, marked
 
 
-def run_calibration_analysis() -> dict:
-    """
-    Обрабатывает session/calibration/sources.jpg.
-    Результаты пишет в contrasted.jpg, contours.jpg, calibrated.jpg.
-    Возвращает коэффициент в пикселях на деление, число и ориентацию штрихов.
-    """
-    source_path = SESSION_CAL_DIR / 'sources.jpg'
-    if not source_path.exists():
-        raise FileNotFoundError('sources.jpg не найден в сессии калибровки')
-
-    logger.info('Калибровка: начало обработки')
-
-    src = read_image(source_path)
-    if src is None:
-        raise ValueError('Не удалось прочитать sources.jpg')
-
+def calibrate_scale_image(src: np.ndarray):
+    """Measure a scale without touching either GUI session or files."""
     contrasted = increase_contrast(src)
-    write_image(SESSION_CAL_DIR / 'contrasted.jpg', contrasted)
 
     orientation, xs, contours_img = _detect_calibration_scale(src, contrasted)
-    write_image(SESSION_CAL_DIR / 'contours.jpg', contours_img)
 
     avg_distance = estimate_scale_spacing(xs)
     distances = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
@@ -375,8 +359,20 @@ def run_calibration_analysis() -> dict:
     label = f'{avg_distance:.3f}'
     _draw_outlined_labels(final_img, [(label, pos)], font_scale=.7, thickness=1, outline_width=1)
 
-    write_image(SESSION_CAL_DIR / 'calibrated.jpg', final_img)
 
-    coefficient = round(avg_distance, 3)
-    logger.info(f'Калибровка завершена: коэффициент={coefficient}, штрихов={len(xs)}, ориентация={orientation}')
-    return {'coefficient': coefficient, 'marks_count': len(xs), 'orientation': orientation}
+    result = {'coefficient': round(avg_distance, 3), 'marks_count': len(xs), 'orientation': orientation}
+    return result, {'contrasted': contrasted, 'contours': contours_img, 'calibrated': final_img}
+
+
+def run_calibration_analysis() -> dict:
+    source_path = SESSION_CAL_DIR / 'sources.jpg'
+    if not source_path.exists():
+        raise FileNotFoundError('sources.jpg не найден в сессии калибровки')
+    src = read_image(source_path)
+    if src is None:
+        raise ValueError('Не удалось прочитать sources.jpg')
+    result, outputs = calibrate_scale_image(src)
+    for name, image in outputs.items():
+        write_image(SESSION_CAL_DIR / (name + '.jpg'), image)
+    logger.info('Калибровка завершена: %s', result)
+    return result

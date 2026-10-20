@@ -85,3 +85,15 @@ def test_platform_camera_backend(monkeypatch, setup_camera, platform, expected):
     monkeypatch.setattr(camera.sys, 'platform', platform)
     controller.open(0)
     assert (len(devices[0].arguments) == 2) is expected
+
+
+def test_fresh_capture_discards_cached_and_buffered_frames(setup_camera):
+    controller, devices = setup_camera
+    token = controller.open(0)
+    number = [0]
+    def read():
+        number[0] += 1
+        return True, np.full((80,100,3),number[0],np.uint8)
+    devices[0].read = read
+    assert controller.read_fresh(token)[0,0,0] == 5
+    assert number[0] == 5

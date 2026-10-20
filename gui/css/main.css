@@ -231,14 +231,82 @@ thead.table-light th {
 .calibration-column {
   min-width: 0;
 }
-.calibration-file-states .btn {
-  flex: 1 1 7rem;
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .65rem;
+}
+.workspace-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.camera-image-frame {
+  height: var(--camera-image-height, 260px);
+  min-width: 0;
+  overflow: hidden;
+  border-radius: .2rem;
+}
+.calibration-workspace {
+  --camera-image-height: clamp(140px, calc(100vh - 535px), 420px);
 }
 .calibration-preview {
   width: 100%;
-  height: 360px;
+  height: calc(var(--camera-image-height) + 82px);
   background: #f8f9fa;
-  cursor: pointer;
+  cursor: zoom-in;
+}
+.calibration-preview:disabled {
+  cursor: default;
+}
+.calibration-view-select {
+  width: auto;
+  max-width: 50%;
+}
+.calibration-scale {
+  min-width: 11rem;
+}
+.calibration-save {
+  flex: 0 1 27rem;
+}
+.calibration-save .form-control {
+  min-width: 0;
+}
+.calibration-advanced .form-control {
+  max-width: 16rem;
+}
+.camera-device-field {
+  flex: 1 1 16rem;
+}
+.camera-index-field {
+  max-width: 8rem;
+}
+.settings-workspace {
+  --camera-image-height: clamp(150px, calc(100vh - 440px), 340px);
+}
+.microscope-list .list-group-item {
+  text-align: left;
+}
+.microscope-list .active .small {
+  color: inherit;
+  opacity: .85;
+}
+.workspace-empty {
+  min-height: 16rem;
+  background: var(--navy-faint);
+}
+@media (max-width: 1100px) {
+  .calibration-save { flex-basis: 22rem; }
+}
+@media (max-width: 991px) {
+  .camera-test-panel .camera-image-frame { height: 180px; }
+}
+@media (max-width: 767px) {
+  .calibration-save { flex-basis: 100%; }
+  .workspace-heading { flex-wrap: wrap; }
 }
 
 /* --- Badges ----------------------------------------------- */

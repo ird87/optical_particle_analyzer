@@ -94,9 +94,9 @@ async function test(name, run) {
     });
     const state = instance(context.window.CameraPanel,{active:true,context:'research',revision:3,connectionId:'a'});
     await state.capture();
-    assert.strictEqual(state.events[0][0],'captured');
-    assert.strictEqual(state.events[0][1].filename,'4.jpg');
-    assert.strictEqual(state.events[0][1].revision,4);
+    const saved=state.events.find(e=>e[0]==='captured');
+    assert.strictEqual(saved[1].filename,'4.jpg');
+    assert.strictEqual(saved[1].revision,4);
     await state.stop();
   });
   await test('failed preview releases the connection', async () => {
@@ -150,6 +150,121 @@ async function test(name, run) {
     assert.strictEqual(state.calibDetection,null);
     assert.strictEqual(state.calibFileExists['calibrated.jpg'],false);
     assert.strictEqual(root.calibrationRevision,2);
+  });
+  await test('calibration cannot save or recalculate a source from another microscope', async () => {
+    let writes=0;
+    const context=load('gui/views/CalibrationView.js',{saveCalibration:async()=>{writes++;return {ok:true,id:1};}});
+    const state=instance(context.window.CalibrationView,{$root:{calibrationRevision:2}});
+    state.calibName='Scale';state.calibSelectedMicroscope={name:'B',type:'MANUAL'};
+    state.calibSelectedDivisionPrice={name:'1 мм (1000 мкм)',value:1000};
+    state.sourceMicroscopeName='A';state.coefficientMicroscopeName='A';state.calibCoefficient=118;
+    state.calibFileExists['sources.jpg']=true;
+    assert.strictEqual(state.isSaveDisabled,true);
+    assert.strictEqual(state.isCalculateDisabled,true);
+    await state.saveCalibration();assert.strictEqual(writes,0);
+  });
+  await test('declining new calibration preserves the unsaved source', async () => {
+    let resets=0;
+    const context=load('gui/views/CalibrationView.js',{newCalibration:async()=>{resets++;return {ok:true,revision:3};}},{confirm:()=>false});
+    const state=instance(context.window.CalibrationView,{$root:{calibrationRevision:2}});
+    state.calibName='Unsaved';state.calibFileExists['sources.jpg']=true;
+    await state.createNewCalibration();
+    assert.strictEqual(resets,0);assert.strictEqual(state.calibName,'Unsaved');
+    assert.strictEqual(state.calibFileExists['sources.jpg'],true);
+  });
+  await test('calibration save is single flight and tracks saved versus edited state', async () => {
+    const pending=deferred();let writes=0;
+    const context=load('gui/views/CalibrationView.js',{saveCalibration:()=>{writes++;return pending.promise;}});
+    const state=instance(context.window.CalibrationView,{$root:{calibrationRevision:2}});
+    state.calibName='Scale';state.calibSelectedMicroscope={name:'A'};
+    state.calibSelectedDivisionPrice={name:'1 мкм',value:1};
+    state.sourceMicroscopeName='A';state.coefficientMicroscopeName='A';state.calibCoefficient=118;
+    const saving=state.saveCalibration();const duplicate=state.saveCalibration();
+    const disabledDuringSave=state.isSaveDisabled;
+    pending.resolve({ok:true,id:1});await Promise.all([saving,duplicate]);
+    assert.strictEqual(writes,1);assert.strictEqual(disabledDuringSave,true);
+    assert.strictEqual(state.hasUnsavedChanges,false);assert(state.successMsg.includes('сохранена'));
+    state.calibName='Renamed';assert.strictEqual(state.hasUnsavedChanges,true);
+  });
+  await test('microscope change starts a fresh source while preserving the division choice', async () => {
+    const context=load('gui/views/CalibrationView.js',{newCalibration:async()=>({ok:true,revision:3})},{confirm:()=>true});
+    const root={calibrationRevision:2,microscopes:[{name:'A'},{name:'B'}]};
+    const state=instance(context.window.CalibrationView,{$root:root});
+    state.calibSelectedMicroscope=root.microscopes[1];state.sourceMicroscopeName='A';
+    state.calibSelectedDivisionPrice={name:'10 мкм',value:10};state.calibFileExists['sources.jpg']=true;
+    state.calibCoefficient=60;state.calibId=4;
+    await state.onMicroscopeChange();
+    assert.strictEqual(state.calibCoefficient,'');assert.strictEqual(state.calibId,0);
+    assert.strictEqual(state.calibFileExists['sources.jpg'],false);
+    assert.strictEqual(state.calibSelectedDivisionPrice.value,10);assert.strictEqual(root.calibrationRevision,3);
+  });
+  await test('camera discovery preserves the microscope being configured', async () => {
+    const context=load('gui/views/SettingsView.js',{scanCameras:async()=>({ok:true,cameras:[{index:2,label:'USB'}]})});
+    const state=instance(context.window.SettingsView,{$root:{microscopes:[{name:'A',camera_index:2}]},$refs:{}});
+    state.selectedMicroscopeName='A';state.bindingIndex=2;
+    await state.scanCameras();
+    assert.strictEqual(state.selectedMicroscopeName,'A');assert.strictEqual(state.bindingIndex,2);
+    assert.strictEqual(state.cameras[0].index,2);
+  });
+  await test('late capture retains the originating microscope identity', async () => {
+    const pending=deferred();
+    const context=load('gui/components/CameraPanel.js',{captureImage:()=>pending.promise});
+    const state=instance(context.window.CameraPanel,{active:true,context:'calibration',connectionId:'a',microscope:{name:'A'}});
+    const capture=state.capture();state.microscope={name:'B'};
+    pending.resolve({ok:true,filename:'sources.jpg',revision:2});await capture;
+    const captured=state.events.find(e=>e[0]==='captured')[1];
+    assert.strictEqual(captured.microscope,'A');
+    const calibration=load('gui/views/CalibrationView.js');
+    const form=instance(calibration.window.CalibrationView,{$root:{calibrationRevision:1}});
+    form.calibSelectedMicroscope={name:'B'};form.calibSelectedDivisionPrice={name:'1 мкм',value:1};
+    form._loadImage=async()=>{};await form.onCaptured(captured);
+    assert.strictEqual(form.sourceMicroscopeName,'A');assert.strictEqual(form.isCalculateDisabled,true);
+  });
+  await test('changing microscope invalidates even the first capture before it completes', async () => {
+    let resets=0;
+    const context=load('gui/views/CalibrationView.js',{newCalibration:async()=>{resets++;return {ok:true,revision:3};}});
+    const root={calibrationRevision:1,microscopes:[{name:'A'},{name:'B'}]};
+    const state=instance(context.window.CalibrationView,{$root:root});
+    state.activeMicroscopeName='A';state.calibSelectedMicroscope=root.microscopes[1];
+    await state.onMicroscopeChange();assert.strictEqual(resets,1);
+    state._loadImage=async()=>{};
+    await state.onCaptured({revision:2,microscope:'A'});
+    assert.strictEqual(state.calibFileExists['sources.jpg'],false);
+  });
+  await test('changing microscope starts a new record after a saved manual coefficient', async () => {
+    const context=load('gui/views/CalibrationView.js',{newCalibration:async()=>({ok:true,revision:3})},{confirm:()=>true});
+    const root={calibrationRevision:2,microscopes:[{name:'A'},{name:'B'}]};
+    const state=instance(context.window.CalibrationView,{$root:root});
+    state.calibSelectedMicroscope=root.microscopes[1];state.coefficientMicroscopeName='A';state.calibCoefficient=50;state.calibId=7;
+    await state.onMicroscopeChange();
+    assert.strictEqual(state.calibId,0);assert.strictEqual(state.calibCoefficient,'');assert.strictEqual(state.coefficientMicroscopeName,'');
+  });
+  await test('pending calibration load prevents new session and cannot roll back revision', async () => {
+    const pending=deferred();let resets=0;
+    const context=load('gui/views/CalibrationView.js',{
+      loadCalibration:()=>pending.promise,newCalibration:async()=>{resets++;return {ok:true,revision:4};},
+    });
+    const root={calibrationRevision:1,microscopes:[],divisionPrices:[]};
+    const state=instance(context.window.CalibrationView,{$root:root});
+    state.isCalibLoadVisible=true;
+    const loading=state.loadCalibration({id:7});
+    const working=state.working;
+    await state.createNewCalibration();
+    root.calibrationRevision=3;
+    pending.resolve({ok:true,revision:2,calibration:{id:7,name:'Old',microscope:'A',coefficient:20,division_price:'1 мкм'},files:[]});
+    await loading;
+    assert.strictEqual(working,true);assert.strictEqual(resets,0);
+    assert.strictEqual(root.calibrationRevision,3);assert.strictEqual(state.calibId,0);
+  });
+  await test('deleting a calibration keeps the original target if selection changes', async () => {
+    const pending=deferred();
+    const context=load('gui/views/CalibrationView.js',{deleteCalibration:()=>pending.promise},{confirm:()=>true});
+    const state=instance(context.window.CalibrationView,{$root:{calibrationRevision:1}});
+    state.selectedRow={id:1};state.calibrations=[{id:1},{id:2}];
+    const deleting=state.deleteCalibration();
+    state.selectedRow={id:2};pending.resolve({ok:true,active:false,revision:1});await deleting;
+    assert.strictEqual(state.calibrations.length,1);assert.strictEqual(state.calibrations[0].id,2);
+    assert.strictEqual(state.selectedRow.id,2);
   });
   await test('application waits for pywebview bridge readiness', async () => {
     const html = fs.readFileSync('gui/index.html','utf8');

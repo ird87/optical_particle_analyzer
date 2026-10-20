@@ -78,12 +78,13 @@ def test_narrow_neck_is_split_without_losing_circle_measurements(light):
         assert cv2.contourArea(contour) == pytest.approx(np.pi * 38 ** 2, rel=.04)
 
 
-def test_elongated_and_concave_single_particle_are_not_split_by_default():
+@pytest.mark.parametrize('split', [False, True])
+def test_elongated_and_convex_single_particles_are_not_split(split):
     image = np.full((300, 440, 3), 230, np.uint8)
     cv2.ellipse(image, (110, 100), (75, 18), 0, 0, 360, (20, 20, 20), -1)
     triangle = np.array([[250, 230], [280, 50], [390, 230]], np.int32)
     cv2.fillPoly(image, [triangle], (20, 20, 20))
-    assert len(segment_particles(image)['contours']) == 2
+    assert len(segment_particles(image, {'split_touching': split})['contours']) == 2
 
 
 def test_close_separate_particles_are_not_joined():
@@ -156,3 +157,57 @@ def test_splitting_different_sizes_does_not_transfer_large_grain_area_to_small_o
     assert len(result['contours']) == 2
     for area, radius in zip(sorted(cv2.contourArea(c) for c in result['contours']), [small, large]):
         assert area == pytest.approx(np.pi * radius ** 2, rel=.07)
+
+
+def test_split_preserves_background_gap_between_grains_connected_at_both_sides():
+    image = np.full((270, 300, 3), 230, np.uint8)
+    color = (20, 20, 20)
+    cv2.circle(image, (150, 85), 45, color, -1)
+    cv2.circle(image, (150, 185), 35, color, -1)
+    for x in (128, 172):
+        cv2.line(image, (x, 120), (x, 165), color, 4)
+    result = segment_particles(image, {'split_touching': True})
+    assert len(result['contours']) == 2
+    assert all(cv2.boundingRect(c)[3] < 115 for c in result['contours'])
+
+
+@pytest.mark.parametrize('minimum,expected', [(100, 2), (400, 1)])
+def test_attached_small_fragment_is_split_before_area_filtering(minimum, expected):
+    image = np.full((230, 320, 3), 230, np.uint8)
+    color = (20, 20, 20)
+    cv2.circle(image, (110, 115), 42, color, -1)
+    cv2.circle(image, (170, 115), 9, color, -1)
+    cv2.line(image, (149, 115), (164, 115), color, 3)
+    result = segment_particles(image, {'split_touching': True, 'min_area_px': minimum})
+    assert len(result['contours']) == expected
+    large = max(result['contours'], key=cv2.contourArea)
+    assert cv2.boundingRect(large)[2] < 95
+    assert cv2.contourArea(large) == pytest.approx(np.pi * 42 ** 2, rel=.04)
+    if minimum == 400:
+        assert result['excluded_small'] >= 1
+
+
+def test_split_cluster_handles_different_neck_widths():
+    image = np.full((260, 280, 3), 230, np.uint8)
+    color = (20, 20, 20)
+    cv2.circle(image, (100, 85), 40, color, -1)
+    cv2.circle(image, (100, 185), 28, color, -1)
+    cv2.line(image, (100, 122), (100, 160), color, 20)
+    cv2.circle(image, (160, 85), 9, color, -1)
+    cv2.line(image, (138, 85), (154, 85), color, 3)
+    result = segment_particles(image, {'split_touching': True})
+    assert len(result['contours']) == 3
+
+
+def test_small_grain_between_two_large_grains_keeps_its_whole_body():
+    image = np.full((280, 320, 3), 230, np.uint8)
+    color = (20, 20, 20)
+    cv2.circle(image, (150, 80), 50, color, -1)
+    cv2.circle(image, (175, 195), 32, color, -1)
+    cv2.circle(image, (110, 165), 12, color, -1)
+    for start, end in [((172, 120), (175, 168)), ((130, 123), (113, 155)), ((119, 169), (148, 184))]:
+        cv2.line(image, start, end, color, 3)
+    result = segment_particles(image, {'split_touching': True})
+    assert len(result['contours']) == 3
+    small = min(result['contours'], key=cv2.contourArea)
+    assert cv2.contourArea(small) == pytest.approx(np.pi * 12 ** 2, rel=.2)
